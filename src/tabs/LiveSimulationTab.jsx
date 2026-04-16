@@ -422,7 +422,7 @@ function ParameterPanel({ params, setParams, design, setDesign, onFire, speed, s
 }
 
 // --- Inline raw data view ---
-function RawDataView({ traj, currentT, maxT }) {
+function RawDataView({ traj, currentT, maxT, onClose }) {
   const logRef = useRef(null)
   const [lines, setLines] = useState([])
   const prevT = useRef(0)
@@ -462,9 +462,16 @@ function RawDataView({ traj, currentT, maxT }) {
       fontFamily: "'IBM Plex Mono', 'SF Mono', 'Consolas', monospace",
       display: 'flex', flexDirection: 'column',
     }}>
-      <div style={{ padding: '10px 20px', borderBottom: '1px solid #1a2030', fontSize: 13, display: 'flex', justifyContent: 'space-between', color: '#888' }}>
+      <div style={{ padding: '10px 20px', borderBottom: '1px solid #1a2030', fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#888' }}>
         <span><span style={{ color: '#4ade80', fontWeight: 700 }}>RAW TELEMETRY</span> · 6DOF · 13-STATE · RK4 @ dt=0.05s · STANAG-4355</span>
-        <span>T+<span style={{ color: '#fbbf24', fontWeight: 700 }}>{currentT.toFixed(2)}s</span> / {maxT.toFixed(2)}s</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <span>T+<span style={{ color: '#fbbf24', fontWeight: 700 }}>{currentT.toFixed(2)}s</span> / {maxT.toFixed(2)}s</span>
+          <button onClick={onClose} style={{
+            background: '#22d3ee', border: 'none', borderRadius: 6,
+            color: '#000', padding: '5px 16px', fontSize: 13, fontWeight: 700,
+            fontFamily: "'IBM Plex Mono', monospace", cursor: 'pointer', letterSpacing: 1,
+          }}>BACK TO 3D</button>
+        </div>
       </div>
       <div ref={logRef} style={{ flex: 1, overflow: 'auto', padding: '4px 20px', fontSize: 12, lineHeight: 1.9, color: '#bbb' }}>
         {lines.map((l, i) => (
@@ -554,7 +561,7 @@ export default function LiveSimulationTab({ data }) {
 
       {/* Raw data overlay */}
       {showRawData && fired && (
-        <RawDataView traj={synth.guided} currentT={currentT} maxT={maxT} />
+        <RawDataView traj={synth.guided} currentT={currentT} maxT={maxT} onClose={() => setShowRawData(false)} />
       )}
 
       {/* Floating telemetry */}
