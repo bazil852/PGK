@@ -248,6 +248,35 @@ function synthesizeTrajectories(baseTraj, params, design, runSeed) {
   const unguided = { ...scaledBase, x: unguidedX, y: unguidedY }
   const guided = { ...scaledBase, x: guidedX, y: guidedY }
 
+  // Find apogee (max altitude index) for both trajectories
+  let apogeeIdx = 0
+  for (let i = 1; i < n; i++) {
+    if (scaledBase.z[i] > scaledBase.z[apogeeIdx]) apogeeIdx = i
+  }
+  const apogee = {
+    t: scaledBase.t[apogeeIdx],
+    guided: { x: guidedX[apogeeIdx] * S, z: scaledBase.z[apogeeIdx] * S, y: guidedY[apogeeIdx] * S },
+    unguided: { x: unguidedX[apogeeIdx] * S, z: scaledBase.z[apogeeIdx] * S, y: unguidedY[apogeeIdx] * S },
+    alt: Math.round(scaledBase.z[apogeeIdx]),
+  }
+
+  // Compute correction vectors — where guided diverges from unguided
+  const correctionVectors = []
+  for (let i = 0; i < correctionPoints.length; i++) {
+    const cp = correctionPoints[i]
+    // Find corresponding unguided position at same time
+    let lo = 0, hi = n - 1
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (scaledBase.t[mid] <= cp.t) lo = mid; else hi = mid }
+    const frac = (cp.t - scaledBase.t[lo]) / (scaledBase.t[hi] - scaledBase.t[lo])
+    const uX = (unguidedX[lo] + frac * (unguidedX[hi] - unguidedX[lo])) * S
+    const uY = (unguidedY[lo] + frac * (unguidedY[hi] - unguidedY[lo])) * S
+    const uZ = (scaledBase.z[lo] + frac * (scaledBase.z[hi] - scaledBase.z[lo])) * S
+    correctionVectors.push({
+      ...cp,
+      fromX: uX, fromZ: uZ, fromY: uY,  // unguided position
+    })
+  }
+
   const uImpact = { x: unguidedX[n - 1], y: unguidedY[n - 1] }
   const gImpact = { x: guidedX[n - 1], y: guidedY[n - 1] }
   const target = { x: scaledBase.x[n - 1], y: scaledBase.y[n - 1] }
@@ -258,7 +287,7 @@ function synthesizeTrajectories(baseTraj, params, design, runSeed) {
   return {
     unguided, guided, uImpact, gImpact, target,
     uMiss: Math.round(uMiss), gMiss: Math.round(gMiss),
-    correctionPoints, statusNote,
+    correctionPoints, correctionVectors, apogee, statusNote,
     perturbations: { mvError: mvError.toFixed(1), windGust: windGust.toFixed(1), crossWind: crossWind.toFixed(1), tempDelta: tempDelta.toFixed(1) },
   }
 }
@@ -289,20 +318,65 @@ function TrajectoryLine({ traj, scale, color, currentT }) {
   )
 }
 
-// --- Canard correction marker (small diamond that appears at correction points) ---
-function CorrectionMarker({ position, currentT, triggerT }) {
-  const visible = currentT >= triggerT
-  if (!visible) return null
+// --- Apogee marker ---
+function ApogeeMarker({ position, alt, currentT, triggerT }) {
+  const ref = useRef()
+  useFrame(() => { if (ref.current) ref.current.rotation.y += 0.01 })
+  if (currentT < triggerT) return null
   return (
     <group position={[position.x, position.z, position.y]}>
-      <mesh rotation={[0, 0, Math.PI / 4]}>
-        <boxGeometry args={[0.03, 0.03, 0.03]} />
-        <meshBasicMaterial color="#FF6B35" transparent opacity={0.8} />
+      {/* Rotating ring at apogee */}
+      <mesh ref={ref} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.06, 0.006, 8, 32]} />
+        <meshBasicMaterial color="#22d3ee" transparent opacity={0.7} />
       </mesh>
-      <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, -0.001, 0]}>
-        <ringGeometry args={[0.02, 0.035, 16]} />
-        <meshBasicMaterial color="#FF6B35" transparent opacity={0.3} side={2} />
+      {/* Vertical line down to ground */}
+      <mesh position={[0, -position.z / 2, 0]}>
+        <cylinderGeometry args={[0.002, 0.002, position.z, 4]} />
+        <meshBasicMaterial color="#22d3ee" transparent opacity={0.15} />
       </mesh>
+      {/* Label */}
+      <Text position={[0, 0.12, 0]} fontSize={0.06} color="#22d3ee" anchorX="center"
+        outlineWidth={0.003} outlineColor="#000">
+        APOGEE {alt}m
+      </Text>
+    </group>
+  )
+}
+
+// --- Canard correction marker with adjustment vector ---
+function CorrectionMarker({ position, currentT, triggerT, fromX, fromZ, fromY }) {
+  const visible = currentT >= triggerT
+  if (!visible) return null
+
+  // Line from unguided position to guided position (the correction)
+  const points = useMemo(() => {
+    if (fromX === undefined) return null
+    return new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(fromX, fromZ, fromY),
+      new THREE.Vector3(position.x, position.z, position.y),
+    ])
+  }, [position, fromX, fromZ, fromY])
+
+  return (
+    <group>
+      {/* Diamond at guided position */}
+      <group position={[position.x, position.z, position.y]}>
+        <mesh rotation={[0, 0, Math.PI / 4]}>
+          <boxGeometry args={[0.025, 0.025, 0.025]} />
+          <meshBasicMaterial color="#FF6B35" transparent opacity={0.9} />
+        </mesh>
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[0.015, 0.03, 16]} />
+          <meshBasicMaterial color="#FF6B35" transparent opacity={0.35} side={2} />
+        </mesh>
+      </group>
+      {/* Correction vector line */}
+      {points && (
+        <line geometry={points}>
+          <lineBasicMaterial color="#FF6B35" transparent opacity={0.4} />
+        </line>
+      )}
     </group>
   )
 }
@@ -454,7 +528,7 @@ function Terrain() {
 }
 
 // --- Single flight scene ---
-function FlightScene({ traj, target, impact, color, label, guided, currentT, fired, impacted, correctionPoints }) {
+function FlightScene({ traj, target, impact, color, label, guided, currentT, fired, impacted, correctionPoints, correctionVectors, apogee }) {
   const interpPos = useCallback((tr, t) => {
     const times = tr.t
     if (t <= times[0]) return [tr.x[0] * S, tr.z[0] * S, tr.y[0] * S]
@@ -518,9 +592,19 @@ function FlightScene({ traj, target, impact, color, label, guided, currentT, fir
           {targetPos && <CEPCircle position={targetPos} />}
           {impacted && impactPos && <ImpactMarker position={impactPos} color={color} label="IMPACT" />}
           {impacted && impactPos && <ImpactBurst position={impactPos} color={color} active={impacted} />}
-          {/* Canard correction markers */}
-          {correctionPoints && correctionPoints.map((cp, i) => (
-            <CorrectionMarker key={i} position={cp} currentT={currentT} triggerT={cp.t} />
+          {/* Apogee marker */}
+          {apogee && (
+            <ApogeeMarker
+              position={guided ? apogee.guided : apogee.unguided}
+              alt={apogee.alt}
+              currentT={currentT}
+              triggerT={apogee.t}
+            />
+          )}
+          {/* Canard correction markers with adjustment vectors */}
+          {(correctionVectors || correctionPoints || []).map((cp, i) => (
+            <CorrectionMarker key={i} position={cp} currentT={currentT} triggerT={cp.t}
+              fromX={cp.fromX} fromZ={cp.fromZ} fromY={cp.fromY} />
           ))}
         </>
       )}
@@ -1027,6 +1111,7 @@ export default function LiveSimulationTab({ data }) {
               traj={synth.unguided} target={synth.target} impact={synth.uImpact}
               color="#b45454" label="UNGUIDED" guided={false}
               currentT={currentT} fired={fired} impacted={impacted}
+              apogee={synth.apogee}
             />
           </Canvas>
         </div>
@@ -1045,6 +1130,8 @@ export default function LiveSimulationTab({ data }) {
               label={`DESIGN ${design.id}`} guided={design.id >= 2}
               currentT={currentT} fired={fired} impacted={impacted}
               correctionPoints={synth.correctionPoints}
+              correctionVectors={synth.correctionVectors}
+              apogee={synth.apogee}
             />
           </Canvas>
         </div>
