@@ -46,7 +46,7 @@ const designs = [
   {
     id: '04',
     tag: 'G-HARDENED',
-    image: '/step4.png',
+    image: '/design4.png',
     driver: <><B>FEA</B> revealed that even <B>aerospace-grade bearings</B> would not survive the <B>setback g-shock</B> of the <B>155 mm gun launch</B>. Conventional bearing selection had reached its ceiling.</>,
     change: <><B>Mechanical lock-out</B> added: nose and body remain <B>rigidly coupled</B> during muzzle exit. Coupling releases at <B>200 m arm-out</B> — after setback is over — and only then does the <B>bearing</B> begin to function.</>,
     outcome: <>Bearing sees only <B>in-flight loads</B>, well below its <B>qualification g</B>. <B>Setback survival</B> eliminated as a design risk without up-sizing the bearing class.</>,
