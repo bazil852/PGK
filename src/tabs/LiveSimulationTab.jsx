@@ -109,7 +109,7 @@ function scaleTrajectory(baseTraj, params) {
 }
 
 // --- Synthesize divergent trajectories with per-run randomness ---
-function synthesizeTrajectories(baseTraj, params, design, runSeed) {
+function synthesizeTrajectories(baseTraj, params, design, runSeed, sensors = { gps: true, imu: true, mag: true }) {
   const rng = mulberry32(runSeed)
 
   // First scale the base trajectory to match desired distance/MV/QE
@@ -124,6 +124,19 @@ function synthesizeTrajectories(baseTraj, params, design, runSeed) {
   const crossWind = (rng() - 0.5) * 4.0                            // random crosswind component
   const tempDelta = (rng() - 0.5) * 6                              // ±3°C
   const densityFactor = 1 + (tempDelta / params.temp) * -0.003     // air density from temp
+
+  // --- Sensor-driven degradation (only applies to guided, designs >= 3) ---
+  // GPS loss: no absolute position → IMU dead-reckoning drift grows quadratically with time
+  const gpsLoss = !sensors.gps && design.id >= 3
+  // IMU loss: autopilot has stale state between 10Hz GPS fixes → oscillation
+  const imuLoss = !sensors.imu && design.id >= 3
+  // Magnetometer loss: nose heading drifts → canard direction wrong
+  const magLoss = !sensors.mag && design.id >= 3
+  // Bias seeds for sensor-loss drift (random per run)
+  const gpsDriftDirX = (rng() - 0.5) * 2
+  const gpsDriftDirY = (rng() - 0.5) * 2
+  const imuOscPhase = rng() * 6.28
+  const magDriftAmp = 25 + rng() * 20  // ±25-45m heading-drift lateral error
 
   // Effective parameters for this shot
   const effWind = params.wind + windGust
@@ -228,6 +241,36 @@ function synthesizeTrajectories(baseTraj, params, design, runSeed) {
         default:
           yCorr = baseDrift
           xCorr = windBias * frac
+      }
+
+      // --- Sensor degradation layer (applies on top of design-specific behavior) ---
+      if (gpsLoss) {
+        // No GPS → dead reckoning drift grows with time² (integrating gyro bias)
+        const dt = corrFrac * (1 - design.correctionStart) * maxT
+        const drift = 0.5 * 0.4 * dt * dt  // 0.4 m/s² effective drift
+        yCorr += drift * gpsDriftDirY
+        xCorr += drift * gpsDriftDirX * 0.6
+        statusNote = `GPS OFFLINE — IMU DEAD-RECKONING · drift ${drift.toFixed(0)}m`
+      }
+      if (imuLoss) {
+        // No IMU → autopilot uses stale GPS → oscillates wildly
+        const oscAmp = 18 + corrFrac * 12
+        yCorr += Math.sin(t * 2.5 + imuOscPhase) * oscAmp
+        xCorr += Math.cos(t * 2.1 + imuOscPhase) * oscAmp * 0.5
+        // Degraded correction — autopilot can't keep up
+        yCorr = yCorr * 1.3  // less effective correction
+        statusNote = `IMU OFFLINE — 10Hz GPS-ONLY · autopilot oscillating`
+      }
+      if (magLoss) {
+        // No magnetometer → nose heading drifts → canards applied in wrong direction
+        // Correction vector rotates as heading estimate drifts
+        const headingErr = corrFrac * 0.35  // radians of drift over guidance phase
+        const yErr = -yCorr * (1 - Math.cos(headingErr)) + magDriftAmp * Math.sin(headingErr) * (rng() > 0.5 ? 1 : -1) * corrFrac
+        yCorr += yErr
+        statusNote = `MAGNETOMETER OFFLINE — nose heading drift ${(headingErr * 180 / Math.PI).toFixed(0)}°`
+      }
+      if (gpsLoss && imuLoss) {
+        statusNote = `GPS + IMU OFFLINE — UNGUIDED BALLISTIC FLIGHT`
       }
 
       guidedY.push(scaledBase.y[i] + yCorr)
@@ -731,7 +774,7 @@ function TelemetryOverlay({ currentT, phase, phaseColor, gAlt, gRange, gMach, uA
 }
 
 // --- Parameter panel (pre-fire) ---
-function ParameterPanel({ params, setParams, design, setDesign, onFire, speed, setSpeed, onShowHistory, historyCount }) {
+function ParameterPanel({ params, setParams, design, setDesign, sensors, setSensors, onFire, speed, setSpeed, onShowHistory, historyCount }) {
   const [bootPhase, setBootPhase] = useState(null)  // null | 'connecting' | 'auth' | 'init' | 'starting'
   const [showUpload, setShowUpload] = useState(false)
 
@@ -810,6 +853,34 @@ function ParameterPanel({ params, setParams, design, setDesign, onFire, speed, s
               borderRadius: 8, padding: '8px 14px', cursor: 'pointer',
               color: '#666', fontSize: 13, fontFamily: font,
             }}>+ Upload</button>
+          </div>
+
+          {/* Sensor configuration */}
+          <div style={{ display: 'flex', gap: 10, marginBottom: 20, alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ fontSize: 12, color: '#888', letterSpacing: 2, marginRight: 8 }}>SENSORS</span>
+            {[
+              { key: 'gps', label: 'GPS', spec: '10 Hz · 5m CEP' },
+              { key: 'imu', label: 'IMU', spec: '1 kHz · gyro+accel' },
+              { key: 'mag', label: 'MAG', spec: '100 Hz · ±2° hdg' },
+            ].map(s => (
+              <button key={s.key}
+                onClick={() => setSensors({ ...sensors, [s.key]: !sensors[s.key] })}
+                style={{
+                  background: sensors[s.key] ? 'rgba(90,158,111,0.2)' : 'rgba(239,68,68,0.15)',
+                  border: `1px solid ${sensors[s.key] ? '#5a9e6f' : '#ef4444'}`,
+                  borderRadius: 8, padding: '10px 16px', cursor: 'pointer', fontFamily: font,
+                  color: sensors[s.key] ? '#5a9e6f' : '#ef4444',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  minWidth: 130,
+                }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 700 }}>
+                  <span>{sensors[s.key] ? '●' : '○'}</span>
+                  <span>{s.label}</span>
+                  <span style={{ fontSize: 11, opacity: 0.8 }}>{sensors[s.key] ? 'ONLINE' : 'OFFLINE'}</span>
+                </div>
+                <div style={{ fontSize: 10, marginTop: 2, opacity: 0.7 }}>{s.spec}</div>
+              </button>
+            ))}
           </div>
 
           {/* Fake upload modal */}
@@ -990,13 +1061,14 @@ export default function LiveSimulationTab({ data }) {
   const [showParams, setShowParams] = useState(true)
   const [showRawData, setShowRawData] = useState(false)
   const [followCam, setFollowCam] = useState(false)
+  const [sensors, setSensors] = useState({ gps: true, imu: true, mag: true })
   const [runSeed, setRunSeed] = useState(Date.now())
   const [showHistory, setShowHistory] = useState(false)
   const [history, setHistory] = useState(() => loadHistory())
   const [savedThisRun, setSavedThisRun] = useState(false)
 
   const baseTraj = data.unguided.trajectory
-  const synth = useMemo(() => synthesizeTrajectories(baseTraj, params, design, runSeed), [baseTraj, params, design, runSeed])
+  const synth = useMemo(() => synthesizeTrajectories(baseTraj, params, design, runSeed, sensors), [baseTraj, params, design, runSeed, sensors])
   const maxT = useMemo(() => synth.guided.t[synth.guided.t.length - 1], [synth])
   const currentT = Math.min(elapsed, maxT)
 
@@ -1082,6 +1154,7 @@ export default function LiveSimulationTab({ data }) {
       {/* Parameter panel overlay */}
       {showParams && !showHistory && (
         <ParameterPanel params={params} setParams={setParams} design={design} setDesign={setDesign}
+          sensors={sensors} setSensors={setSensors}
           onFire={handleFire} speed={speed} setSpeed={setSpeed}
           onShowHistory={() => setShowHistory(true)} historyCount={history.length} />
       )}
