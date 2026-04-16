@@ -986,31 +986,33 @@ function ParameterPanel({ params, setParams, design, setDesign, sensors, setSens
 // --- Inline raw data view ---
 function RawDataView({ traj, currentT, maxT, onClose }) {
   const logRef = useRef(null)
-  const [lines, setLines] = useState([])
-  const prevT = useRef(0)
 
-  useEffect(() => {
-    if (currentT <= prevT.current) { setLines([]); prevT.current = 0; return }
-    if (currentT - prevT.current < 0.15) return  // throttle
-    prevT.current = currentT
-
+  // Generate all log lines from 0 → currentT in one pass (handles live + retroactive)
+  const lines = useMemo(() => {
+    const result = []
+    const step = 0.15  // log entry every 0.15s of flight time
     const times = traj.t
-    let lo = 0, hi = times.length - 1
-    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (times[mid] <= currentT) lo = mid; else hi = mid }
-    const frac = (currentT - times[lo]) / (times[hi] - times[lo])
-    const lerp = (arr) => arr[lo] + frac * (arr[hi] - arr[lo])
+    const interp = (arr, t) => {
+      if (t <= times[0]) return arr[0]
+      if (t >= times[times.length - 1]) return arr[times.length - 1]
+      let lo = 0, hi = times.length - 1
+      while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (times[mid] <= t) lo = mid; else hi = mid }
+      const frac = (t - times[lo]) / (times[hi] - times[lo])
+      return arr[lo] + frac * (arr[hi] - arr[lo])
+    }
 
-    const x = lerp(traj.x), y = lerp(traj.y), z = lerp(traj.z)
-    const vx = lerp(traj.vx), vy = lerp(traj.vy), vz = lerp(traj.vz)
-    const V = Math.sqrt(vx * vx + vy * vy + vz * vz)
-    const mach = lerp(traj.mach)
-    const qbar = 0.5 * 1.225 * V * V * Math.exp(-z / 8500)
+    for (let t = 0; t <= currentT + 0.001; t += step) {
+      const x = interp(traj.x, t), y = interp(traj.y, t), z = interp(traj.z, t)
+      const vx = interp(traj.vx, t), vy = interp(traj.vy, t), vz = interp(traj.vz, t)
+      const V = Math.sqrt(vx * vx + vy * vy + vz * vz)
+      const mach = interp(traj.mach, t)
+      const qbar = 0.5 * 1.225 * V * V * Math.exp(-z / 8500)
 
-    setLines(prev => {
-      const line = `T+${currentT.toFixed(2).padStart(6)}s | pos=[${x.toFixed(1).padStart(8)}, ${y.toFixed(1).padStart(7)}, ${z.toFixed(1).padStart(7)}] | V=${V.toFixed(1).padStart(6)} m/s | M=${mach.toFixed(3)} | q̄=${qbar.toFixed(0).padStart(5)} Pa | Cd·S=${(0.0189 * (1 + 0.3 * Math.max(0, mach - 0.9))).toFixed(4)} | F_drag=${(qbar * 0.0189).toFixed(1).padStart(6)} N | Clp=${(-0.012 * mach).toFixed(4)} | p_b=${(-1130 + 30 * currentT / maxT).toFixed(0)} rad/s`
-      const updated = [...prev, line]
-      return updated.length > 150 ? updated.slice(-150) : updated
-    })
+      result.push(
+        `T+${t.toFixed(2).padStart(6)}s | pos=[${x.toFixed(1).padStart(8)}, ${y.toFixed(1).padStart(7)}, ${z.toFixed(1).padStart(7)}] | V=${V.toFixed(1).padStart(6)} m/s | M=${mach.toFixed(3)} | q̄=${qbar.toFixed(0).padStart(5)} Pa | Cd·S=${(0.0189 * (1 + 0.3 * Math.max(0, mach - 0.9))).toFixed(4)} | F_drag=${(qbar * 0.0189).toFixed(1).padStart(6)} N | Clp=${(-0.012 * mach).toFixed(4)} | p_b=${(-1130 + 30 * t / maxT).toFixed(0)} rad/s`
+      )
+    }
+    return result.slice(-300)  // keep last 300 entries
   }, [currentT, traj, maxT])
 
   useEffect(() => {
