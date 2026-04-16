@@ -68,7 +68,7 @@ export default function MechanicalDesignTab() {
   const [activeDesign, setActiveDesign] = useState(0)
 
   return (
-    <div style={{ padding: 36, display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
+    <div style={{ padding: 36 }}>
       {/* Intro */}
       <div style={{ ...panelStyle, marginBottom: 20, padding: '20px 28px' }}>
         <div style={{ fontSize: 16, color: C.accent, letterSpacing: 3, fontWeight: 700, marginBottom: 8, textTransform: 'uppercase' }}>
@@ -113,7 +113,7 @@ export default function MechanicalDesignTab() {
       {(() => {
         const d = designs[activeDesign]
         return (
-          <div style={{ ...panelStyle, padding: '24px 28px', flex: 1, minHeight: 0 }}>
+          <div style={{ ...panelStyle, padding: '24px 28px' }}>
             <div style={{
               display: 'flex', alignItems: 'baseline', gap: 16,
               marginBottom: 18, paddingBottom: 14, borderBottom: `2px solid ${C.borderLight}`,
