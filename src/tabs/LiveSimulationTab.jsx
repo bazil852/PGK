@@ -309,27 +309,37 @@ function CorrectionMarker({ position, currentT, triggerT }) {
 
 // --- CEP circle on ground (50m radius scaled to scene) ---
 function CEPCircle({ position, radius = 50 }) {
-  const r = radius * S  // 50m in scene units
+  const r = radius * S  // 50m = 0.05 scene units
+  const thick = 0.008   // ring thickness — visible from camera distance
   return (
     <group position={position}>
-      {/* Outer CEP ring */}
+      {/* Outer CEP ring — thick enough to see */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]}>
+        <ringGeometry args={[r - thick, r + thick, 64]} />
+        <meshBasicMaterial color="#fbbf24" transparent opacity={0.7} side={2} />
+      </mesh>
+      {/* Mid ring */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.004, 0]}>
+        <ringGeometry args={[r * 0.5 - thick * 0.5, r * 0.5 + thick * 0.5, 48]} />
+        <meshBasicMaterial color="#fbbf24" transparent opacity={0.25} side={2} />
+      </mesh>
+      {/* Fill disc */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.003, 0]}>
-        <ringGeometry args={[r - 0.003, r + 0.003, 64]} />
-        <meshBasicMaterial color="#fbbf24" transparent opacity={0.5} side={2} />
-      </mesh>
-      {/* Inner dashed rings for visual depth */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.002, 0]}>
-        <ringGeometry args={[r * 0.5 - 0.002, r * 0.5 + 0.002, 48]} />
-        <meshBasicMaterial color="#fbbf24" transparent opacity={0.15} side={2} />
-      </mesh>
-      {/* Fill */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.001, 0]}>
         <circleGeometry args={[r, 64]} />
-        <meshBasicMaterial color="#fbbf24" transparent opacity={0.04} side={2} />
+        <meshBasicMaterial color="#fbbf24" transparent opacity={0.08} side={2} />
+      </mesh>
+      {/* Cross hairs */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.006, 0]}>
+        <planeGeometry args={[r * 2.2, thick * 0.5]} />
+        <meshBasicMaterial color="#fbbf24" transparent opacity={0.4} side={2} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, Math.PI / 2, 0]} position={[0, 0.006, 0]}>
+        <planeGeometry args={[r * 2.2, thick * 0.5]} />
+        <meshBasicMaterial color="#fbbf24" transparent opacity={0.4} side={2} />
       </mesh>
       {/* CEP label */}
-      <Text position={[0, 0.01, r + 0.02]} fontSize={0.04} color="#fbbf24" anchorX="center"
-        outlineWidth={0.002} outlineColor="#111">
+      <Text position={[0, 0.02, r + 0.04]} fontSize={0.06} color="#fbbf24" anchorX="center"
+        outlineWidth={0.003} outlineColor="#000" fontWeight="bold">
         CEP 50m
       </Text>
     </group>
@@ -386,7 +396,7 @@ function ImpactBurst({ position, color, active }) {
 }
 
 // --- Single flight scene ---
-function FlightScene({ traj, target, impact, color, label, guided, currentT, fired, impacted, correctionPoints, pastImpacts }) {
+function FlightScene({ traj, target, impact, color, label, guided, currentT, fired, impacted, correctionPoints }) {
   const interpPos = useCallback((tr, t) => {
     const times = tr.t
     if (t <= times[0]) return [tr.x[0] * S, tr.z[0] * S, tr.y[0] * S]
@@ -445,10 +455,6 @@ function FlightScene({ traj, target, impact, color, label, guided, currentT, fir
           {targetPos && <CEPCircle position={targetPos} />}
           {impacted && impactPos && <ImpactMarker position={impactPos} color={color} label="IMPACT" />}
           {impacted && impactPos && <ImpactBurst position={impactPos} color={color} active={impacted} />}
-          {/* Past campaign impacts */}
-          {pastImpacts && pastImpacts.map((pi, i) => (
-            <ImpactMarker key={`past-${i}`} position={[pi.x * S, 0, pi.y * S]} color={color} label={`#${i + 1}`} />
-          ))}
           {/* Canard correction markers */}
           {correctionPoints && correctionPoints.map((cp, i) => (
             <CorrectionMarker key={i} position={cp} currentT={currentT} triggerT={cp.t} />
@@ -467,7 +473,7 @@ function PlaybackDriver({ fired, speed, onTick }) {
 }
 
 // --- Floating telemetry overlay ---
-function TelemetryOverlay({ currentT, phase, phaseColor, gAlt, gRange, gMach, uAlt, uRange, uMiss, gMiss, impacted, collapsed, setCollapsed, statusNote, perturbations, designId, campaignMode, campaignRound }) {
+function TelemetryOverlay({ currentT, phase, phaseColor, gAlt, gRange, gMach, uAlt, uRange, uMiss, gMiss, impacted, collapsed, setCollapsed, statusNote, perturbations, designId }) {
   if (collapsed) {
     return (
       <div onClick={() => setCollapsed(false)} style={{
@@ -491,13 +497,6 @@ function TelemetryOverlay({ currentT, phase, phaseColor, gAlt, gRange, gMach, uA
       padding: '16px 24px', minWidth: 340, cursor: 'default',
     }}>
       <div onClick={() => setCollapsed(true)} style={{ position: 'absolute', top: 8, right: 14, color: '#666', cursor: 'pointer', fontSize: 18 }}>−</div>
-
-      {/* Campaign indicator */}
-      {campaignMode && (
-        <div style={{ textAlign: 'center', marginBottom: 8, padding: '4px 0', background: 'rgba(255,107,53,0.1)', borderRadius: 6 }}>
-          <span style={{ fontSize: 12, color: C.accent, letterSpacing: 3, fontWeight: 700 }}>CAMPAIGN ROUND {campaignRound + 1} / 8</span>
-        </div>
-      )}
 
       {/* Phase + Time */}
       <div style={{ textAlign: 'center', marginBottom: 12 }}>
@@ -558,7 +557,7 @@ function TelemetryOverlay({ currentT, phase, phaseColor, gAlt, gRange, gMach, uA
 }
 
 // --- Parameter panel (pre-fire) ---
-function ParameterPanel({ params, setParams, design, setDesign, onFire, onCampaign, speed, setSpeed, onShowHistory, historyCount }) {
+function ParameterPanel({ params, setParams, design, setDesign, onFire, speed, setSpeed, onShowHistory, historyCount }) {
   const [bootPhase, setBootPhase] = useState(null)  // null | 'connecting' | 'auth' | 'init' | 'starting'
   const [showUpload, setShowUpload] = useState(false)
 
@@ -727,11 +726,6 @@ function ParameterPanel({ params, setParams, design, setDesign, onFire, onCampai
               fontSize: 24, fontWeight: 700, color: '#fff', cursor: 'pointer',
               letterSpacing: 6, fontFamily: font,
             }}>SIMULATE</button>
-            <button onClick={() => { handleFire(); setTimeout(onCampaign, 100) }} style={{
-              background: 'rgba(255,107,53,0.15)', border: '1px solid #FF6B35',
-              borderRadius: 12, padding: '16px 32px', fontSize: 18, fontWeight: 700,
-              color: '#FF6B35', cursor: 'pointer', letterSpacing: 4, fontFamily: font,
-            }}>CAMPAIGN (8)</button>
             <button onClick={onShowHistory} style={{
               background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
               borderRadius: 12, padding: '16px 32px', fontSize: 16, fontWeight: 600,
@@ -825,10 +819,6 @@ export default function LiveSimulationTab({ data }) {
   const [showHistory, setShowHistory] = useState(false)
   const [history, setHistory] = useState(() => loadHistory())
   const [savedThisRun, setSavedThisRun] = useState(false)
-  const [campaignMode, setCampaignMode] = useState(false)
-  const [campaignRound, setCampaignRound] = useState(0)
-  const [pastUnguidedImpacts, setPastUnguidedImpacts] = useState([])
-  const [pastGuidedImpacts, setPastGuidedImpacts] = useState([])
 
   const baseTraj = data.unguided.trajectory
   const synth = useMemo(() => synthesizeTrajectories(baseTraj, params, design, runSeed), [baseTraj, params, design, runSeed])
@@ -862,10 +852,6 @@ export default function LiveSimulationTab({ data }) {
   useEffect(() => {
     if (elapsed >= maxT && fired && !impacted) {
       setImpacted(true)
-      // Record impact positions for scatter
-      setPastUnguidedImpacts(prev => [...prev, synth.uImpact])
-      setPastGuidedImpacts(prev => [...prev, synth.gImpact])
-      // Auto-save this run
       if (!savedThisRun) {
         saveRun({
           seed: runSeed,
@@ -885,45 +871,19 @@ export default function LiveSimulationTab({ data }) {
         setSavedThisRun(true)
         setHistory(loadHistory())
       }
-      // Campaign: auto-fire next round after delay
-      if (campaignMode && campaignRound < 7) {
-        setTimeout(() => {
-          setCampaignRound(prev => prev + 1)
-          setRunSeed(Date.now() + campaignRound)
-          setFired(false)
-          setElapsed(0)
-          setImpacted(false)
-          setSavedThisRun(false)
-          setTimeout(() => setFired(true), 200)
-        }, 1500)
-      } else if (campaignMode) {
-        setCampaignMode(false)  // campaign complete
-      }
     }
-  }, [elapsed, maxT, fired, impacted, savedThisRun, runSeed, design, params, synth, campaignMode, campaignRound])
+  }, [elapsed, maxT, fired, impacted, savedThisRun, runSeed, design, params, synth])
 
   const handleFire = () => {
     setRunSeed(Date.now())
     setShowParams(false)
     setShowRawData(false)
     setShowHistory(false)
-    setCampaignMode(false)
-    setCampaignRound(0)
-    setPastUnguidedImpacts([])
-    setPastGuidedImpacts([])
     setFired(false)
     setElapsed(0)
     setImpacted(false)
     setSavedThisRun(false)
     setTimeout(() => setFired(true), 100)
-  }
-
-  const handleCampaign = () => {
-    setCampaignMode(true)
-    setCampaignRound(0)
-    setPastUnguidedImpacts([])
-    setPastGuidedImpacts([])
-    handleFire()
   }
 
   const handleReset = () => {
@@ -947,7 +907,7 @@ export default function LiveSimulationTab({ data }) {
       {/* Parameter panel overlay */}
       {showParams && !showHistory && (
         <ParameterPanel params={params} setParams={setParams} design={design} setDesign={setDesign}
-          onFire={handleFire} onCampaign={handleCampaign} speed={speed} setSpeed={setSpeed}
+          onFire={handleFire} speed={speed} setSpeed={setSpeed}
           onShowHistory={() => setShowHistory(true)} historyCount={history.length} />
       )}
 
@@ -964,7 +924,6 @@ export default function LiveSimulationTab({ data }) {
           uMiss={synth.uMiss} gMiss={synth.gMiss} impacted={impacted}
           collapsed={collapsed} setCollapsed={setCollapsed}
           statusNote={synth.statusNote} perturbations={synth.perturbations} designId={design.id}
-          campaignMode={campaignMode} campaignRound={campaignRound}
         />
       )}
 
@@ -1005,7 +964,6 @@ export default function LiveSimulationTab({ data }) {
               traj={synth.unguided} target={synth.target} impact={synth.uImpact}
               color="#b45454" label="UNGUIDED" guided={false}
               currentT={currentT} fired={fired} impacted={impacted}
-              pastImpacts={pastUnguidedImpacts}
             />
           </Canvas>
         </div>
@@ -1024,7 +982,6 @@ export default function LiveSimulationTab({ data }) {
               label={`DESIGN ${design.id}`} guided={design.id >= 2}
               currentT={currentT} fired={fired} impacted={impacted}
               correctionPoints={synth.correctionPoints}
-              pastImpacts={pastGuidedImpacts}
             />
           </Canvas>
         </div>
