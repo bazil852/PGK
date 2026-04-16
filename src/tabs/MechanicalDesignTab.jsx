@@ -33,7 +33,7 @@ const designs = [
   {
     id: '03',
     tag: 'SENSOR-INTEGRATED',
-    image: '/download.png',
+    image: '/design4.png',
     driver: <>Military-grade <B>GPS receiver</B>, <B>IMU</B>, <B>magnetometer</B> and the <B>PMSM motor</B> were procured. The <B>physical envelopes</B> and <B>thermal footprints</B> of the delivered parts did not fit the Design-02 internal volume.</>,
     change: <>Interior repacked to accept the actual <B>procured hardware</B>. <B>Motor mount</B>, <B>sensor stack</B>, and <B>harness routing</B> designed around the delivered parts rather than placeholder models.</>,
     outcome: <>Every subsystem now backed by a <B>qualified part number</B>. <B>Mass</B> and <B>CG</B> kept inside the original <B>fuze-replacement budget</B>.</>,
@@ -46,7 +46,7 @@ const designs = [
   {
     id: '04',
     tag: 'G-HARDENED',
-    image: '/design4.png',
+    image: '/download.png',
     driver: <><B>FEA</B> revealed that even <B>aerospace-grade bearings</B> would not survive the <B>setback g-shock</B> of the <B>155 mm gun launch</B>. Conventional bearing selection had reached its ceiling.</>,
     change: <><B>Mechanical lock-out</B> added: nose and body remain <B>rigidly coupled</B> during muzzle exit. Coupling releases at <B>200 m arm-out</B> — after setback is over — and only then does the <B>bearing</B> begin to function.</>,
     outcome: <>Bearing sees only <B>in-flight loads</B>, well below its <B>qualification g</B>. <B>Setback survival</B> eliminated as a design risk without up-sizing the bearing class.</>,
