@@ -388,11 +388,19 @@ function ApogeeMarker({ position, alt, currentT, triggerT }) {
 }
 
 // --- Canard correction marker with adjustment vector ---
-function CorrectionMarker({ position, currentT, triggerT, fromX, fromZ, fromY }) {
+function CorrectionMarker({ position, currentT, triggerT, fromX, fromZ, fromY, index }) {
+  const ringRef = useRef()
   const visible = currentT >= triggerT
-  if (!visible) return null
 
-  // Line from unguided position to guided position (the correction)
+  useFrame(() => {
+    if (ringRef.current && visible) {
+      const age = Math.min(currentT - triggerT, 1)
+      const pulse = 1 + Math.sin(Date.now() * 0.005) * 0.15
+      ringRef.current.scale.setScalar(pulse * (1 + age * 0.3))
+      ringRef.current.material.opacity = Math.max(0.2, 0.7 - age * 0.3)
+    }
+  })
+
   const points = useMemo(() => {
     if (fromX === undefined) return null
     return new THREE.BufferGeometry().setFromPoints([
@@ -401,23 +409,43 @@ function CorrectionMarker({ position, currentT, triggerT, fromX, fromZ, fromY })
     ])
   }, [position, fromX, fromZ, fromY])
 
+  if (!visible) return null
+
   return (
     <group>
-      {/* Diamond at guided position */}
+      {/* Glowing sphere at guided position */}
       <group position={[position.x, position.z, position.y]}>
-        <mesh rotation={[0, 0, Math.PI / 4]}>
-          <boxGeometry args={[0.025, 0.025, 0.025]} />
-          <meshBasicMaterial color="#FF6B35" transparent opacity={0.9} />
+        {/* Outer pulsing halo */}
+        <mesh ref={ringRef}>
+          <sphereGeometry args={[0.06, 16, 16]} />
+          <meshBasicMaterial color="#FF6B35" transparent opacity={0.25} />
         </mesh>
+        {/* Solid inner sphere */}
+        <mesh>
+          <sphereGeometry args={[0.025, 16, 16]} />
+          <meshBasicMaterial color="#FFA500" />
+        </mesh>
+        {/* Orbital ring (visible orientation) */}
         <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[0.015, 0.03, 16]} />
-          <meshBasicMaterial color="#FF6B35" transparent opacity={0.35} side={2} />
+          <ringGeometry args={[0.04, 0.05, 24]} />
+          <meshBasicMaterial color="#FF6B35" transparent opacity={0.8} side={2} />
         </mesh>
+        <mesh rotation={[0, 0, Math.PI / 2]}>
+          <ringGeometry args={[0.04, 0.05, 24]} />
+          <meshBasicMaterial color="#FF6B35" transparent opacity={0.5} side={2} />
+        </mesh>
+        {/* Label */}
+        {index !== undefined && (
+          <Text position={[0, 0.1, 0]} fontSize={0.035} color="#FFA500" anchorX="center"
+            outlineWidth={0.002} outlineColor="#000">
+            CORR {index + 1}
+          </Text>
+        )}
       </group>
-      {/* Correction vector line */}
+      {/* Correction vector line — the adjustment from unguided path */}
       {points && (
         <line geometry={points}>
-          <lineBasicMaterial color="#FF6B35" transparent opacity={0.4} />
+          <lineBasicMaterial color="#FF6B35" transparent opacity={0.7} linewidth={2} />
         </line>
       )}
     </group>
@@ -646,7 +674,7 @@ function FlightScene({ traj, target, impact, color, label, guided, currentT, fir
           )}
           {/* Canard correction markers with adjustment vectors */}
           {(correctionVectors || correctionPoints || []).map((cp, i) => (
-            <CorrectionMarker key={i} position={cp} currentT={currentT} triggerT={cp.t}
+            <CorrectionMarker key={i} index={i} position={cp} currentT={currentT} triggerT={cp.t}
               fromX={cp.fromX} fromZ={cp.fromZ} fromY={cp.fromY} />
           ))}
         </>
