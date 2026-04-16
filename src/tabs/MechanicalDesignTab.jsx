@@ -141,7 +141,12 @@ export default function MechanicalDesignTab() {
                   <img
                     src={d.image}
                     alt={`Design ${d.id}`}
-                    style={{ maxWidth: '130%', maxHeight: '130%', objectFit: 'contain', transform: 'scale(1.3)' }}
+                    style={{
+                      maxWidth: d.id === '03' ? '100%' : '130%',
+                      maxHeight: d.id === '03' ? '100%' : '130%',
+                      objectFit: 'contain',
+                      transform: d.id === '03' ? 'scale(1.04)' : 'scale(1.3)',
+                    }}
                   />
                 ) : (
                   <div style={{ textAlign: 'center', color: C.textDim }}>
