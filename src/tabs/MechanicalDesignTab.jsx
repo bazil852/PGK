@@ -33,7 +33,7 @@ const designs = [
   {
     id: '03',
     tag: 'SENSOR-INTEGRATED',
-    image: null,
+    image: '/download.png',
     driver: <>Military-grade <B>GPS receiver</B>, <B>IMU</B>, <B>magnetometer</B> and the <B>PMSM motor</B> were procured. The <B>physical envelopes</B> and <B>thermal footprints</B> of the delivered parts did not fit the Design-02 internal volume.</>,
     change: <>Interior repacked to accept the actual <B>procured hardware</B>. <B>Motor mount</B>, <B>sensor stack</B>, and <B>harness routing</B> designed around the delivered parts rather than placeholder models.</>,
     outcome: <>Every subsystem now backed by a <B>qualified part number</B>. <B>Mass</B> and <B>CG</B> kept inside the original <B>fuze-replacement budget</B>.</>,
