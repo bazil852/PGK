@@ -831,10 +831,9 @@ export default function LiveSimulationTab({ data }) {
   const [pastGuidedImpacts, setPastGuidedImpacts] = useState([])
 
   const baseTraj = data.unguided.trajectory
+  const synth = useMemo(() => synthesizeTrajectories(baseTraj, params, design, runSeed), [baseTraj, params, design, runSeed])
   const maxT = useMemo(() => synth.guided.t[synth.guided.t.length - 1], [synth])
   const currentT = Math.min(elapsed, maxT)
-
-  const synth = useMemo(() => synthesizeTrajectories(baseTraj, params, design, runSeed), [baseTraj, params, design, runSeed])
 
   const interp = useCallback((traj, t, key) => {
     const times = traj.t, vals = traj[key]
