@@ -64,11 +64,58 @@ function mulberry32(seed) {
   }
 }
 
+// --- Scale base trajectory to match desired range/MV/QE ---
+function scaleTrajectory(baseTraj, params) {
+  const baseRange = baseTraj.x[baseTraj.x.length - 1]  // ~8843m
+  const baseTime = baseTraj.t[baseTraj.t.length - 1]   // ~33s
+  const baseMV = 397  // original charge 5W MV
+  const baseAlt = Math.max(...baseTraj.z)               // ~1347m
+
+  // Range scaling: target distance drives everything
+  const rangeRatio = params.target / baseRange
+  // MV affects max achievable range — higher MV can reach further
+  const mvRatio = params.mv / baseMV
+  // Time scales with sqrt of range (ballistic physics)
+  const timeRatio = Math.pow(rangeRatio, 0.55) / Math.pow(mvRatio, 0.15)
+  // Altitude scales roughly linearly with range (higher QE = higher apogee for same range)
+  const qeEffect = (params.qe - 500) / 500  // deviation from baseline QE
+  const altRatio = rangeRatio * (1 + qeEffect * 0.6)
+
+  const n = baseTraj.t.length
+  const scaled = {
+    t: new Array(n),
+    x: new Array(n),
+    y: new Array(n),
+    z: new Array(n),
+    vx: new Array(n),
+    vy: new Array(n),
+    vz: new Array(n),
+    mach: new Array(n),
+  }
+
+  for (let i = 0; i < n; i++) {
+    scaled.t[i] = baseTraj.t[i] * timeRatio
+    scaled.x[i] = baseTraj.x[i] * rangeRatio
+    scaled.y[i] = baseTraj.y[i] * rangeRatio
+    scaled.z[i] = baseTraj.z[i] * altRatio
+    scaled.vx[i] = baseTraj.vx[i] * (rangeRatio / timeRatio)
+    scaled.vy[i] = baseTraj.vy[i] * (rangeRatio / timeRatio)
+    scaled.vz[i] = baseTraj.vz[i] * (altRatio / timeRatio)
+    // Mach scales with MV ratio — higher MV = starts faster
+    scaled.mach[i] = baseTraj.mach[i] * mvRatio * (1 - 0.15 * (1 - 1 / rangeRatio))
+  }
+
+  return scaled
+}
+
 // --- Synthesize divergent trajectories with per-run randomness ---
 function synthesizeTrajectories(baseTraj, params, design, runSeed) {
   const rng = mulberry32(runSeed)
-  const n = baseTraj.t.length
-  const maxT = baseTraj.t[n - 1]
+
+  // First scale the base trajectory to match desired distance/MV/QE
+  const scaledBase = scaleTrajectory(baseTraj, params)
+  const n = scaledBase.t.length
+  const maxT = scaledBase.t[n - 1]
 
   // --- Per-run random perturbations (realistic Monte Carlo scatter) ---
   const mvError = (rng() - 0.5) * 2.0 * (params.mv * 0.012)      // ±1.2% MV error
@@ -108,22 +155,22 @@ function synthesizeTrajectories(baseTraj, params, design, runSeed) {
   let statusNote = design.note
 
   for (let i = 0; i < n; i++) {
-    const t = baseTraj.t[i]
+    const t = scaledBase.t[i]
     const frac = t / maxT
 
     // --- Unguided: drifts with random scatter ---
     const spinDrift = driftRate * frac * frac * maxT * 0.3
-    const uRangePert = baseTraj.x[i] * (rangeScale - 1) * frac  // range error builds over flight
-    unguidedX.push(baseTraj.x[i] + uRangePert)
-    unguidedY.push(baseTraj.y[i] + spinDrift)
+    const uRangePert = scaledBase.x[i] * (rangeScale - 1) * frac  // range error builds over flight
+    unguidedX.push(scaledBase.x[i] + uRangePert)
+    unguidedY.push(scaledBase.y[i] + spinDrift)
 
     // --- Guided: behavior depends on design ---
     const baseDrift = spinDrift * 0.7
-    const baseX = baseTraj.x[i] + uRangePert  // starts with same perturbation
+    const baseX = scaledBase.x[i] + uRangePert  // starts with same perturbation
 
     if (frac < design.correctionStart) {
       // Pre-guidance: same as unguided (+ slight difference from bearing dynamics)
-      guidedY.push(baseTraj.y[i] + baseDrift)
+      guidedY.push(scaledBase.y[i] + baseDrift)
       guidedX.push(baseX)
     } else {
       const corrFrac = (frac - design.correctionStart) / (1 - design.correctionStart)
@@ -142,7 +189,7 @@ function synthesizeTrajectories(baseTraj, params, design, runSeed) {
         }
         case 2: {
           // Canards correct partially but drag penalty shortens range
-          const dragLoss = d2DragPenalty * baseTraj.x[i] * corrFrac
+          const dragLoss = d2DragPenalty * scaledBase.x[i] * corrFrac
           const partialCorr = corrSmooth * d2CorrVariance
           yCorr = baseDrift * (1 - partialCorr)
           xCorr = windBias * frac * (1 - partialCorr * 0.6) - dragLoss
@@ -183,7 +230,7 @@ function synthesizeTrajectories(baseTraj, params, design, runSeed) {
           xCorr = windBias * frac
       }
 
-      guidedY.push(baseTraj.y[i] + yCorr)
+      guidedY.push(scaledBase.y[i] + yCorr)
       guidedX.push(baseX + xCorr - uRangePert)  // remove double-count of range pert
 
       // Correction markers
@@ -191,19 +238,19 @@ function synthesizeTrajectories(baseTraj, params, design, runSeed) {
         correctionPoints.push({
           t,
           x: (baseX + xCorr - uRangePert) * S,
-          z: baseTraj.z[i] * S,
-          y: (baseTraj.y[i] + yCorr) * S,
+          z: scaledBase.z[i] * S,
+          y: (scaledBase.y[i] + yCorr) * S,
         })
       }
     }
   }
 
-  const unguided = { ...baseTraj, x: unguidedX, y: unguidedY }
-  const guided = { ...baseTraj, x: guidedX, y: guidedY }
+  const unguided = { ...scaledBase, x: unguidedX, y: unguidedY }
+  const guided = { ...scaledBase, x: guidedX, y: guidedY }
 
   const uImpact = { x: unguidedX[n - 1], y: unguidedY[n - 1] }
   const gImpact = { x: guidedX[n - 1], y: guidedY[n - 1] }
-  const target = { x: baseTraj.x[n - 1], y: baseTraj.y[n - 1] }
+  const target = { x: scaledBase.x[n - 1], y: scaledBase.y[n - 1] }
 
   const uMiss = Math.sqrt(Math.pow(uImpact.x - target.x, 2) + Math.pow(uImpact.y - target.y, 2))
   const gMiss = Math.sqrt(Math.pow(gImpact.x - target.x, 2) + Math.pow(gImpact.y - target.y, 2))
