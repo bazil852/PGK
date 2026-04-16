@@ -1,0 +1,268 @@
+{
+  "project": "PGK Program — 155 mm M107 — Ballistics",
+  "projectile": "M107 155mm HE",
+  "standard": "STANAG 4355",
+  "charges": {
+    "4G": { "muzzle_velocity_m_s": 316 },
+    "4W": { "muzzle_velocity_m_s": 337 },
+    "5G": { "muzzle_velocity_m_s": 376 },
+    "5W": { "muzzle_velocity_m_s": 397 },
+    "6W": { "muzzle_velocity_m_s": 474 },
+    "7W": { "muzzle_velocity_m_s": 568 },
+    "8":  { "muzzle_velocity_m_s": 684 }
+  },
+  "plots": {
+    "mpm_correlation": {
+      "file": "mpm_correlation.png",
+      "title": "MPM MODEL vs FIRING TABLE",
+      "subtitle": "7 charges · 722 points · R² = 0.9998 · aggregate RMS 56 m (< 0.4% of range)",
+      "x_axis": "FIRING TABLE RANGE (km)",
+      "y_axis": "MPM MODEL RANGE (km)",
+      "description": "Scatter plot of MPM-predicted range vs Firing Table range for all 7 charges. Dashed 1:1 line shows perfect agreement.",
+      "statistics": {
+        "n": 722,
+        "RMS_m": 56.0,
+        "max_abs_delta_m": 272,
+        "R_squared": 0.999786
+      },
+      "range_span_km": {
+        "min": 0,
+        "max": 18.5
+      }
+    },
+    "mpm_errors": {
+      "file": "mpm_errors.png",
+      "title": "MPM RANGE ERROR — PER CHARGE",
+      "subtitle": "numbers above each box: per-charge RMS in metres",
+      "x_axis": "CHARGE",
+      "y_axis": "RANGE ERROR MPM − FT (m)",
+      "description": "Box-and-whisker plot of range error (MPM minus FT) per charge. Red dots are outliers. Numbers above boxes are per-charge RMS.",
+      "overall_RMS_m": 56.0,
+      "per_charge_RMS_m": {
+        "4G": 31,
+        "4W": 64,
+        "5G": 99,
+        "5W": 73,
+        "6W": 48,
+        "7W": null,
+        "8": null
+      },
+      "box_statistics_approx": {
+        "4G": { "median_m": 20, "Q1_m": -5, "Q3_m": 32, "whisker_low_m": -55, "whisker_high_m": 40 },
+        "4W": { "median_m": 10, "Q1_m": -10, "Q3_m": 25, "whisker_low_m": -30, "whisker_high_m": 80, "outliers_max_m": 195 },
+        "5G": { "median_m": 10, "Q1_m": -5, "Q3_m": 15, "whisker_low_m": -15, "whisker_high_m": 25, "outliers_max_m": 272 },
+        "5W": { "median_m": 10, "Q1_m": 0, "Q3_m": 15, "whisker_low_m": -10, "whisker_high_m": 20, "outliers_max_m": 235 },
+        "6W": { "median_m": 5, "Q1_m": -5, "Q3_m": 25, "whisker_low_m": -25, "whisker_high_m": 72, "outliers_max_m": 165 },
+        "7W": { "median_m": 0, "Q1_m": -10, "Q3_m": 10, "whisker_low_m": -40, "whisker_high_m": 95 },
+        "8":  { "median_m": -5, "Q1_m": -15, "Q3_m": 25, "whisker_low_m": -35, "whisker_high_m": 30, "outliers_max_m": 140 }
+      }
+    },
+    "mpm_tof": {
+      "file": "mpm_tof.png",
+      "title": "TIME OF FLIGHT — ALL CHARGES",
+      "subtitle": "MPM reproduced within 0.3 s across all charges",
+      "x_axis": "RANGE (km)",
+      "y_axis": "TIME OF FLIGHT (s)",
+      "description": "Time of flight vs range for all 7 charges. Each charge shows a curve that bends back at maximum range (high-angle fire). MPM matches FT within 0.3 s.",
+      "tof_accuracy_s": 0.3,
+      "approximate_curves": {
+        "4G": { "min_range_km": 1.8, "max_range_km": 7.5, "min_tof_s": 7, "max_tof_s": 55 },
+        "4W": { "min_range_km": 1.8, "max_range_km": 8.0, "min_tof_s": 7, "max_tof_s": 55 },
+        "5G": { "min_range_km": 2.0, "max_range_km": 9.0, "min_tof_s": 8, "max_tof_s": 60 },
+        "5W": { "min_range_km": 2.0, "max_range_km": 9.5, "min_tof_s": 8, "max_tof_s": 61 },
+        "6W": { "min_range_km": 2.5, "max_range_km": 12.0, "min_tof_s": 9, "max_tof_s": 50 },
+        "7W": { "min_range_km": 3.0, "max_range_km": 14.5, "min_tof_s": 9, "max_tof_s": 58 },
+        "8":  { "min_range_km": 4.0, "max_range_km": 18.2, "min_tof_s": 11, "max_tof_s": 80 }
+      }
+    },
+    "mpm_trajectory_fan": {
+      "file": "mpm_trajectory_fan.png",
+      "title": "TRAJECTORY FAMILY — CHARGE 7W",
+      "subtitle": "MV = 568 m/s · apogee sweep across QE range",
+      "x_axis": "DOWN-RANGE (km)",
+      "y_axis": "ALTITUDE (m)",
+      "description": "Family of 5 representative trajectories for Charge 7W at different quadrant elevations, showing how apogee and range change with QE.",
+      "charge": "7W",
+      "MV_m_s": 568,
+      "trajectories": {
+        "QE_105_mil": { "max_range_km": 4.0, "apogee_m": 120 },
+        "QE_210_mil": { "max_range_km": 7.5, "apogee_m": 500 },
+        "QE_355_mil": { "max_range_km": 11.0, "apogee_m": 1300 },
+        "QE_562_mil": { "max_range_km": 13.5, "apogee_m": 2650 },
+        "QE_982_mil": { "max_range_km": 14.0, "apogee_m": 6100 }
+      }
+    },
+    "roll_decoupled": {
+      "file": "roll_decoupled.png",
+      "title": "ROLL-DECOUPLED MOTION — BODY vs NOSE SPIN",
+      "subtitle": "body keeps gyroscopic stability · nose Earth-locked for canard steering",
+      "x_axis": "TIME (s)",
+      "y_axis": "AXIAL SPIN p (rad/s)",
+      "description": "Comparison of body spin (p_b) and nose spin (p_n) after bearing engagement. Body maintains constant spin ~-1100 rad/s for gyroscopic stability. Nose section is braked to ~0 rad/s by alternator for Earth-fixed canard steering.",
+      "body_spin": {
+        "label": "BODY spin p_b (no change)",
+        "value_rad_s": -1100,
+        "behavior": "Constant throughout flight"
+      },
+      "nose_spin": {
+        "label": "NOSE spin p_n (alternator-braked)",
+        "initial_rad_s": -1100,
+        "final_rad_s": 0,
+        "behavior": "Braked to zero after bearing engagement"
+      },
+      "bearing_engagement": {
+        "state_before": "LOCKED",
+        "engagement_time_ms": 428,
+        "arm_out_distance_m": 200,
+        "label": "BEARING ENGAGES"
+      }
+    },
+    "roll_decoupled_drift": {
+      "file": "roll_decoupled_drift.png",
+      "title": "WHY ROLL-DECOUPLING MATTERS FOR STEERING",
+      "subtitle": "rotating canards average to zero · decoupled canards integrate into real correction",
+      "description": "Two-panel comparison showing why roll-decoupling is essential. Left: lateral acceleration — coupled canards oscillate at body spin rate (~±0.93 m/s²), averaging to zero net effect; decoupled canards produce steady ~0.2 m/s² lateral acceleration. Right: net lateral velocity — coupled canards produce zero net velocity; decoupled canards build to ~4.5 m/s by 25 s.",
+      "left_panel": {
+        "title": "Lateral Acceleration",
+        "x_axis": "TIME (s)",
+        "y_axis": "LATERAL ACCEL (m/s²)",
+        "coupled": {
+          "label": "canards ROTATING with body (coupled)",
+          "amplitude_m_s2": 0.93,
+          "net_effect": "oscillates, averages to zero"
+        },
+        "decoupled": {
+          "label": "canards EARTH-FIXED (decoupled)",
+          "steady_accel_m_s2": 0.19,
+          "net_effect": "steady lateral acceleration"
+        }
+      },
+      "right_panel": {
+        "title": "Net Lateral Velocity",
+        "x_axis": "TIME (s)",
+        "y_axis": "LATERAL VELOCITY (m/s)",
+        "coupled": {
+          "label": "net lateral velocity (coupled)",
+          "value_m_s": 0,
+          "note": "zero net correction"
+        },
+        "decoupled": {
+          "label": "net lateral velocity (decoupled)",
+          "at_25s_m_s": 4.5,
+          "note": "linearly increasing — real steering authority"
+        }
+      }
+    },
+    "sixdof_aoa": {
+      "file": "sixdof_aoa.png",
+      "title": "TOTAL ANGLE-OF-ATTACK ENVELOPE — 7W QE 600",
+      "subtitle": "peak AoA at apogee, damped to <0.5° near impact",
+      "x_axis": "TIME (s)",
+      "y_axis": "TOTAL AoA (deg)",
+      "description": "Envelope of total angle of attack over the full trajectory for Charge 7W at QE 600 mil. Shows initial nutation oscillations (0-5 s), gradual growth to peak ~1.0° at apogee (~27 s), then damping to ~0.3° near impact (~48 s).",
+      "charge": "7W",
+      "QE_mil": 600,
+      "phases": {
+        "initial_nutation": {
+          "time_range_s": [0, 5],
+          "peak_aoa_deg": 0.17,
+          "behavior": "rapid oscillation, damping"
+        },
+        "mid_flight_growth": {
+          "time_range_s": [5, 27],
+          "aoa_deg_range": [0.2, 1.0],
+          "behavior": "steady increase toward apogee"
+        },
+        "peak_at_apogee": {
+          "time_s": 27,
+          "peak_aoa_deg": 1.01
+        },
+        "descent_damping": {
+          "time_range_s": [27, 48],
+          "aoa_deg_range": [1.0, 0.32],
+          "behavior": "decreasing toward impact"
+        }
+      },
+      "total_flight_time_s": 48
+    },
+    "sixdof_epicyclic": {
+      "file": "sixdof_epicyclic.png",
+      "title": "EPICYCLIC MOTION — α vs β (first 250 ms)",
+      "subtitle": "nutation + precession spiral — structurally invisible to 3DOF MPM",
+      "x_axis": "SIDE-SLIP β (deg)",
+      "y_axis": "ANGLE OF ATTACK α (deg)",
+      "description": "Phase-plane plot of angle of attack (α) vs side-slip (β) for the first 250 ms of flight. Shows the characteristic epicyclic spiral pattern from combined nutation and precession. The spiral damps inward over time. This motion is captured by 6DOF but invisible to 3DOF MPM models.",
+      "time_window_ms": 250,
+      "alpha_range_deg": [-0.20, 0.20],
+      "beta_range_deg": [-0.20, 0.20],
+      "markers": {
+        "start": { "t_ms": 0, "color": "red" },
+        "end": { "t_ms": 250, "color": "dark_red" }
+      },
+      "behavior": "Damped epicyclic spiral (nutation + precession)"
+    },
+    "sixdof_rates": {
+      "file": "sixdof_rates.png",
+      "title": "BODY-FRAME ANGULAR RATES — p / q / r",
+      "subtitle": "gyroscopic spin (p) dominates; pitch and yaw oscillate with coning",
+      "x_axis": "TIME (s)",
+      "y_axis": "ANGULAR RATE (rad/s)",
+      "description": "Body-frame angular rates over the full trajectory for Charge 7W at QE 600 mil. Axial spin (p) dominates at ~-1130 rad/s and remains nearly constant. Pitch (q) and yaw (r) rates are near zero with small coning oscillations invisible at this scale.",
+      "rates": {
+        "p_axial_spin": {
+          "label": "p axial spin",
+          "color": "orange",
+          "initial_rad_s": -1150,
+          "final_rad_s": -1100,
+          "behavior": "near-constant, slight decay"
+        },
+        "q_pitch": {
+          "label": "q pitch",
+          "color": "blue",
+          "magnitude_rad_s": "~0 (oscillations invisible at scale)",
+          "behavior": "small coning oscillations"
+        },
+        "r_yaw": {
+          "label": "r yaw",
+          "color": "red",
+          "magnitude_rad_s": "~0 (oscillations invisible at scale)",
+          "behavior": "small coning oscillations"
+        }
+      },
+      "flight_time_s": 48
+    },
+    "sixdof_vs_mpm": {
+      "file": "sixdof_vs_mpm.png",
+      "title": "6DOF vs MPM — 7W @ QE 600 mil",
+      "subtitle": "6DOF adds lateral drift from spin and yaw-of-repose",
+      "description": "Two-panel comparison of 6DOF (full attitude) vs MPM (3DOF + corrections) for Charge 7W at QE 600 mil. Left panel: altitude vs down-range — both models produce nearly identical vertical trajectories (curves overlap). Right panel: cross-range vs down-range — 6DOF captures spin drift (~430 m at 14 km) while MPM has no lateral model (0 m cross-range).",
+      "charge": "7W",
+      "QE_mil": 600,
+      "left_panel": {
+        "title": "Vertical Trajectory",
+        "x_axis": "DOWN-RANGE (km)",
+        "y_axis": "ALTITUDE (m)",
+        "MPM": { "label": "MPM (3DOF + corrections)" },
+        "sixDOF": { "label": "6DOF (full attitude)" },
+        "agreement": "Near-perfect overlap",
+        "max_range_km": 14.0,
+        "apogee_m": 2950
+      },
+      "right_panel": {
+        "title": "Cross-Range (Spin Drift)",
+        "x_axis": "DOWN-RANGE (km)",
+        "y_axis": "CROSS-RANGE (m)",
+        "MPM": {
+          "label": "MPM (no lateral model)",
+          "cross_range_m": 0
+        },
+        "sixDOF": {
+          "label": "6DOF (captures spin drift)",
+          "cross_range_at_impact_m": 430,
+          "behavior": "Exponentially increasing with range"
+        },
+        "key_difference": "6DOF captures ~430 m spin drift at 14 km that MPM misses entirely"
+      }
+    }
+  }
+}
