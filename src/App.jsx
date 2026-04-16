@@ -76,7 +76,7 @@ export default function App() {
         {activeTab === 'mechanical' && <MechanicalDesignTab />}
         {activeTab === 'ballistics' && <BallisticsTab />}
         {activeTab === 'guidance' && <GuidanceControlTab />}
-        {activeTab === 'software' && <FlightSoftwareTab data={data} />}
+        {activeTab === 'software' && <FlightSoftwareTab />}
       </div>
     </div>
   )
