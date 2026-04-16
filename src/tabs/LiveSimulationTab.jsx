@@ -52,46 +52,143 @@ const PRESETS = [
   { name: 'High Wind', charge: '5W', mv: 397, qe: 480, target: 9500, wind: 8.4, windDir: 240, temp: 18, pressure: 1015 },
 ]
 
-// --- Synthesize divergent trajectories from base data ---
-function synthesizeTrajectories(baseTraj, params, design) {
+// --- Seeded PRNG (deterministic per-fire, different each time) ---
+function mulberry32(seed) {
+  return function() {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = t + Math.imul(t ^ (t >>> 7), 61 | t) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+// --- Synthesize divergent trajectories with per-run randomness ---
+function synthesizeTrajectories(baseTraj, params, design, runSeed) {
+  const rng = mulberry32(runSeed)
   const n = baseTraj.t.length
   const maxT = baseTraj.t[n - 1]
-  const driftRate = 12 + params.wind * 2.5
-  const windBias = (params.windDir - 270) / 90 * 30
 
-  const unguidedY = [], guidedY = [], guidedX = []
-  const correctionPoints = []  // timestamps where canard corrections fire
+  // --- Per-run random perturbations (realistic Monte Carlo scatter) ---
+  const mvError = (rng() - 0.5) * 2.0 * (params.mv * 0.012)      // ±1.2% MV error
+  const qeError = (rng() - 0.5) * 2.0 * 8                         // ±8 mil QE error
+  const windGust = (rng() - 0.5) * params.wind * 0.6               // ±30% wind variability
+  const crossWind = (rng() - 0.5) * 4.0                            // random crosswind component
+  const tempDelta = (rng() - 0.5) * 6                              // ±3°C
+  const densityFactor = 1 + (tempDelta / params.temp) * -0.003     // air density from temp
+
+  // Effective parameters for this shot
+  const effWind = params.wind + windGust
+  const driftRate = (10 + effWind * 2.8 + Math.abs(crossWind) * 1.5) * densityFactor
+  const windBias = ((params.windDir - 270) / 90 * 25 + crossWind * 8) * densityFactor
+  const rangeScale = 1 + (mvError / params.mv) * 2.5 + (qeError / 800) * 1.2  // MV & QE affect range
+
+  // --- Design-specific random behavior ---
+  // Design 1: canards produce almost nothing, random flutter
+  const d1Flutter = rng() * 6.28  // random phase
+
+  // Design 2: canards work but drag penalty = shorter range, correction inconsistent
+  const d2DragPenalty = 0.03 + rng() * 0.02  // 3-5% range loss
+  const d2CorrVariance = 0.35 + rng() * 0.35  // correction effectiveness 35-70%
+
+  // Design 3: GPS dropout events, sensor bias wanders
+  const d3DropoutStart = 0.4 + rng() * 0.2    // dropout between 40-60% of flight
+  const d3DropoutLen = 0.03 + rng() * 0.06    // lasts 3-9% of flight time
+  const d3Bias = (rng() - 0.5) * 40           // persistent sensor bias in meters
+  const d3NoiseAmp = 8 + rng() * 20           // noise amplitude 8-28m
+  const d3NoiseFreq = 5 + rng() * 8           // noise frequency
+
+  // Design 4: tight cluster, small residual errors
+  const d4Residual = (rng() - 0.5) * 15       // ±15m residual cross-range
+  const d4RangeRes = (rng() - 0.5) * 20       // ±20m residual range
+
+  const unguidedX = [], unguidedY = [], guidedX = [], guidedY = []
+  const correctionPoints = []
+  let statusNote = design.note
 
   for (let i = 0; i < n; i++) {
     const t = baseTraj.t[i]
     const frac = t / maxT
+
+    // --- Unguided: drifts with random scatter ---
     const spinDrift = driftRate * frac * frac * maxT * 0.3
+    const uRangePert = baseTraj.x[i] * (rangeScale - 1) * frac  // range error builds over flight
+    unguidedX.push(baseTraj.x[i] + uRangePert)
     unguidedY.push(baseTraj.y[i] + spinDrift)
 
+    // --- Guided: behavior depends on design ---
+    const baseDrift = spinDrift * 0.7
+    const baseX = baseTraj.x[i] + uRangePert  // starts with same perturbation
+
     if (frac < design.correctionStart) {
-      guidedY.push(baseTraj.y[i] + spinDrift * 0.7)
-      guidedX.push(baseTraj.x[i])
+      // Pre-guidance: same as unguided (+ slight difference from bearing dynamics)
+      guidedY.push(baseTraj.y[i] + baseDrift)
+      guidedX.push(baseX)
     } else {
       const corrFrac = (frac - design.correctionStart) / (1 - design.correctionStart)
       const corrSmooth = corrFrac * corrFrac * (3 - 2 * corrFrac)
-      const remainingDrift = spinDrift * 0.7
-      let yCorr = remainingDrift * (1 - corrSmooth * design.correctionStrength)
-      let xCorr = windBias * frac * (1 - corrSmooth * design.correctionStrength * 0.8)
+      let yCorr, xCorr
 
-      // Sensor noise for Design 3
-      if (design.sensorNoise) {
-        yCorr += Math.sin(t * 8.3) * 15 * (1 - corrFrac)
-        xCorr += Math.cos(t * 6.7) * 10 * (1 - corrFrac)
+      switch (design.id) {
+        case 1: {
+          // Canards flutter uselessly — ~10N vs 40N needed
+          // Tiny oscillation that does nothing meaningful
+          const flutter = Math.sin(t * 12.5 + d1Flutter) * 3 * (1 - corrFrac * 0.3)
+          yCorr = baseDrift + flutter
+          xCorr = windBias * frac + Math.cos(t * 9.2 + d1Flutter) * 2
+          statusNote = `CANARD LIFT ~10N — NEED 40N — MISS ≈ ${Math.round(driftRate * 3)}m+`
+          break
+        }
+        case 2: {
+          // Canards correct partially but drag penalty shortens range
+          const dragLoss = d2DragPenalty * baseTraj.x[i] * corrFrac
+          const partialCorr = corrSmooth * d2CorrVariance
+          yCorr = baseDrift * (1 - partialCorr)
+          xCorr = windBias * frac * (1 - partialCorr * 0.6) - dragLoss
+          // Canard authority oscillates as flow separates at high alpha
+          yCorr += Math.sin(t * 3.2) * 8 * (1 - corrFrac) * (1 - d2CorrVariance)
+          statusNote = `RANGE LOSS ${(d2DragPenalty * 100).toFixed(1)}% — CORRECTION ${(d2CorrVariance * 100).toFixed(0)}%`
+          break
+        }
+        case 3: {
+          // GPS dropout + sensor noise
+          const inDropout = frac > d3DropoutStart && frac < d3DropoutStart + d3DropoutLen
+          const baseCorr = corrSmooth * 0.7
+          if (inDropout) {
+            // During dropout: guidance holds last known state, drifts
+            yCorr = baseDrift * (1 - baseCorr * 0.5) + d3Bias * 0.5
+            xCorr = windBias * frac * (1 - baseCorr * 0.3)
+            statusNote = `GPS DROPOUT @ T+${(d3DropoutStart * maxT).toFixed(1)}s — IMU DEAD-RECKONING`
+          } else {
+            // Outside dropout: noisy but functional
+            const noise = Math.sin(t * d3NoiseFreq) * d3NoiseAmp * (1 - corrFrac * 0.5)
+            yCorr = baseDrift * (1 - baseCorr) + noise + d3Bias * (1 - corrFrac)
+            xCorr = windBias * frac * (1 - baseCorr * 0.7) + Math.cos(t * d3NoiseFreq * 0.7) * d3NoiseAmp * 0.5
+            if (frac > d3DropoutStart + d3DropoutLen + 0.02) {
+              statusNote = `GPS RECOVERED — BIAS ${d3Bias > 0 ? '+' : ''}${d3Bias.toFixed(0)}m — CONVERGING`
+            }
+          }
+          break
+        }
+        case 4: {
+          // Full authority — tight correction with small residual
+          const fullCorr = corrSmooth * (0.88 + rng() * 0.08)  // 88-96% effectiveness per run
+          yCorr = baseDrift * (1 - fullCorr) + d4Residual * corrFrac * (1 - corrFrac) * 2
+          xCorr = windBias * frac * (1 - fullCorr * 0.85) + d4RangeRes * corrFrac * (1 - corrFrac) * 2
+          break
+        }
+        default:
+          yCorr = baseDrift
+          xCorr = windBias * frac
       }
 
       guidedY.push(baseTraj.y[i] + yCorr)
-      guidedX.push(baseTraj.x[i] + xCorr)
+      guidedX.push(baseX + xCorr - uRangePert)  // remove double-count of range pert
 
-      // Mark correction points (every ~2s during guidance phase)
+      // Correction markers
       if (design.correctionStrength > 0 && i % 40 === 0 && corrFrac > 0.05) {
         correctionPoints.push({
           t,
-          x: (baseTraj.x[i] + xCorr) * S,
+          x: (baseX + xCorr - uRangePert) * S,
           z: baseTraj.z[i] * S,
           y: (baseTraj.y[i] + yCorr) * S,
         })
@@ -99,17 +196,22 @@ function synthesizeTrajectories(baseTraj, params, design) {
     }
   }
 
-  const unguided = { ...baseTraj, y: unguidedY }
+  const unguided = { ...baseTraj, x: unguidedX, y: unguidedY }
   const guided = { ...baseTraj, x: guidedX, y: guidedY }
 
-  const uImpact = { x: baseTraj.x[n - 1] + windBias, y: unguidedY[n - 1] }
+  const uImpact = { x: unguidedX[n - 1], y: unguidedY[n - 1] }
   const gImpact = { x: guidedX[n - 1], y: guidedY[n - 1] }
   const target = { x: baseTraj.x[n - 1], y: baseTraj.y[n - 1] }
 
   const uMiss = Math.sqrt(Math.pow(uImpact.x - target.x, 2) + Math.pow(uImpact.y - target.y, 2))
   const gMiss = Math.sqrt(Math.pow(gImpact.x - target.x, 2) + Math.pow(gImpact.y - target.y, 2))
 
-  return { unguided, guided, uImpact, gImpact, target, uMiss: Math.round(uMiss), gMiss: Math.round(gMiss), correctionPoints }
+  return {
+    unguided, guided, uImpact, gImpact, target,
+    uMiss: Math.round(uMiss), gMiss: Math.round(gMiss),
+    correctionPoints, statusNote,
+    perturbations: { mvError: mvError.toFixed(1), windGust: windGust.toFixed(1), crossWind: crossWind.toFixed(1), tempDelta: tempDelta.toFixed(1) },
+  }
 }
 
 // --- Trajectory line ---
@@ -232,7 +334,7 @@ function PlaybackDriver({ fired, speed, onTick }) {
 }
 
 // --- Floating telemetry overlay ---
-function TelemetryOverlay({ currentT, phase, phaseColor, gAlt, gRange, gMach, uAlt, uRange, uMiss, gMiss, impacted, collapsed, setCollapsed }) {
+function TelemetryOverlay({ currentT, phase, phaseColor, gAlt, gRange, gMach, uAlt, uRange, uMiss, gMiss, impacted, collapsed, setCollapsed, statusNote, perturbations, designId }) {
   if (collapsed) {
     return (
       <div onClick={() => setCollapsed(false)} style={{
@@ -283,12 +385,32 @@ function TelemetryOverlay({ currentT, phase, phaseColor, gAlt, gRange, gMach, uA
         </div>
       </div>
 
+      {/* Shot perturbations */}
+      {perturbations && (
+        <div style={{ marginTop: 10, padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 6, fontSize: 11, color: '#666' }}>
+          <div style={{ letterSpacing: 2, marginBottom: 4, color: '#888' }}>SHOT PERTURBATIONS</div>
+          <div>ΔMV {perturbations.mvError} m/s · ΔWind {perturbations.windGust} m/s · Cross {perturbations.crossWind} m/s · ΔT {perturbations.tempDelta}°C</div>
+        </div>
+      )}
+
+      {/* Design status note */}
+      {statusNote && (
+        <div style={{
+          marginTop: 8, padding: '6px 10px', fontSize: 11, letterSpacing: 1.5,
+          color: designId === 4 ? '#5a9e6f' : designId === 1 ? '#ef4444' : '#fbbf24',
+          borderLeft: `2px solid ${designId === 4 ? '#5a9e6f' : designId === 1 ? '#ef4444' : '#fbbf24'}`,
+          background: 'rgba(255,255,255,0.02)',
+        }}>
+          {statusNote}
+        </div>
+      )}
+
       {/* Post-impact result */}
       {impacted && (
         <div style={{ textAlign: 'center', marginTop: 12, padding: '10px 0', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
           <div style={{ fontSize: 11, color: '#888', letterSpacing: 2 }}>CEP REDUCTION</div>
           <div style={{ fontSize: 28, fontWeight: 700, color: C.accent }}>{uMiss} → {gMiss} m</div>
-          <div style={{ fontSize: 14, color: '#aaa' }}>{(uMiss / Math.max(gMiss, 1)).toFixed(1)}x improvement</div>
+          <div style={{ fontSize: 14, color: '#aaa' }}>{gMiss < uMiss ? `${(uMiss / Math.max(gMiss, 1)).toFixed(1)}x improvement` : 'NO IMPROVEMENT'}</div>
         </div>
       )}
     </div>
@@ -498,12 +620,13 @@ export default function LiveSimulationTab({ data }) {
   const [design, setDesign] = useState(DESIGNS[3])  // Default to Design 4
   const [showParams, setShowParams] = useState(true)
   const [showRawData, setShowRawData] = useState(false)
+  const [runSeed, setRunSeed] = useState(Date.now())
 
   const baseTraj = data.unguided.trajectory
   const maxT = baseTraj.t[baseTraj.t.length - 1]
   const currentT = Math.min(elapsed, maxT)
 
-  const synth = useMemo(() => synthesizeTrajectories(baseTraj, params, design), [baseTraj, params, design])
+  const synth = useMemo(() => synthesizeTrajectories(baseTraj, params, design, runSeed), [baseTraj, params, design, runSeed])
 
   const interp = useCallback((traj, t, key) => {
     const times = traj.t, vals = traj[key]
@@ -534,7 +657,9 @@ export default function LiveSimulationTab({ data }) {
   }, [elapsed, maxT, fired])
 
   const handleFire = () => {
+    setRunSeed(Date.now())  // new random seed each fire
     setShowParams(false)
+    setShowRawData(false)
     setFired(false)
     setElapsed(0)
     setImpacted(false)
@@ -571,6 +696,7 @@ export default function LiveSimulationTab({ data }) {
           gAlt={gAlt} gRange={gRange} gMach={gMach} uAlt={uAlt} uRange={uRange}
           uMiss={synth.uMiss} gMiss={synth.gMiss} impacted={impacted}
           collapsed={collapsed} setCollapsed={setCollapsed}
+          statusNote={synth.statusNote} perturbations={synth.perturbations} designId={design.id}
         />
       )}
 
