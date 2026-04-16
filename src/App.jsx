@@ -41,11 +41,9 @@ export default function App() {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '16px 36px', borderBottom: '2px solid #e5e5e5', background: '#fff',
       }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14 }}>
-          <span style={{ fontSize: 28, fontWeight: 700, color: '#FF6B35', letterSpacing: '0.5px' }}>
-            ESFORGE
-          </span>
-          <span style={{ fontSize: 20, color: '#999' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <img src="/images/esforge_Logo.png" alt="ESFORGE" style={{ height: 36 }} />
+          <span style={{ fontSize: 18, color: '#999', fontWeight: 500 }}>
             Simulation Network
           </span>
         </div>
