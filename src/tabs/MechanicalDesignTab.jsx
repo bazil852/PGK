@@ -205,6 +205,57 @@ export default function MechanicalDesignTab() {
           </div>
         )
       })()}
+
+      {/* Design Comparison Table */}
+      <div style={{ ...panelStyle, marginTop: 20, padding: '24px 28px' }}>
+        <div style={{ fontSize: 16, color: C.accent, letterSpacing: 3, fontWeight: 700, marginBottom: 8, textTransform: 'uppercase' }}>
+          Design Progression Summary
+        </div>
+        <div style={{ fontSize: 24, fontWeight: 700, color: C.textBright, marginBottom: 16 }}>
+          Quantitative Comparison — Design 1 through 4
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ borderBottom: `2px solid ${C.border}` }}>
+              {['', 'D1 Preliminary', 'D2 Windtunnel', 'D3 Sensors', 'D4 Final'].map((h, i) => (
+                <th key={i} style={{
+                  padding: '10px 14px', textAlign: i === 0 ? 'left' : 'center',
+                  fontSize: 15, fontWeight: 700, color: i === 4 ? '#16a34a' : i === 0 ? C.textDim : C.textBright,
+                  letterSpacing: i === 0 ? 2 : 0,
+                }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              ['Canard Lift', '~10 N', '40 N', '40 N', '40 N'],
+              ['Control Authority', 'NONE', 'MARGINAL', 'INTERMITTENT', 'FULL'],
+              ['Bearing Survival', 'N/A', 'N/A', 'N/A', 'LOCK-OUT'],
+              ['Sensor Suite', 'NONE', 'NONE', 'GPS/IMU/MAG', 'GPS/IMU/MAG'],
+              ['Range Penalty', '0%', '3%', '3%', '3%'],
+              ['Sim CEP (D4 ref)', '> 200 m', '80–120 m', '50–90 m', '35–50 m'],
+              ['Roll Decoupled', 'NO', 'NO', 'NO', 'YES'],
+              ['Arm-Out', 'N/A', 'N/A', 'N/A', '200 m'],
+              ['TRL', '2', '3', '4', '5'],
+            ].map(([label, ...vals]) => (
+              <tr key={label} style={{ borderBottom: `1px solid ${C.borderLight}` }}>
+                <td style={{ padding: '10px 14px', fontSize: 15, fontWeight: 600, color: C.textDim, letterSpacing: 1 }}>{label}</td>
+                {vals.map((v, i) => {
+                  const isGood = i === 3 && !['N/A', 'NONE', 'NO', '0%'].includes(v)
+                  const isBad = (v === 'NONE' || v === 'N/A' || v === 'NO' || v.includes('200'))
+                  return (
+                    <td key={i} style={{
+                      padding: '10px 14px', textAlign: 'center', fontSize: 16, fontWeight: 600,
+                      color: isGood ? '#16a34a' : isBad && i < 3 ? '#999' : C.textBright,
+                      fontFamily: "'Inter', system-ui, sans-serif",
+                    }}>{v}</td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

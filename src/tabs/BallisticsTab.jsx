@@ -614,6 +614,83 @@ export default function BallisticsTab() {
           ))}
         </div>
       )}
+
+      {/* CFD Gallery */}
+      <div style={{ ...panelStyle, padding: '24px 36px', marginTop: 20 }}>
+        <div style={{ fontSize: 16, color: C.accent, letterSpacing: 3, fontWeight: 700, marginBottom: 8, textTransform: 'uppercase' }}>
+          Computational Fluid Dynamics
+        </div>
+        <div style={{ fontSize: 28, fontWeight: 700, color: C.textBright, marginBottom: 6 }}>
+          CFD Analysis Across the Mach Envelope
+        </div>
+        <div style={{ fontSize: 18, color: C.textDim, lineHeight: 1.6, marginBottom: 20 }}>
+          Flow field analysis at four Mach numbers spanning the full flight regime — subsonic through supersonic.
+        </div>
+        <CFDGallery />
+      </div>
+    </div>
+  )
+}
+
+const CFD_DATA = [
+  { mach: '0.9', label: 'Subsonic', images: [
+    { src: '/images/cfd/cfd_m09_velocity.png', label: 'Velocity Field' },
+    { src: '/images/cfd/cfd_m09_temperature.png', label: 'Temperature' },
+    { src: '/images/cfd/cfd_m09_cd.png', label: 'Drag Convergence' },
+    { src: '/images/cfd/cfd_m09_pgk.png', label: 'PGK Geometry' },
+  ]},
+  { mach: '1.2', label: 'Transonic', images: [
+    { src: '/images/cfd/cfd_m12_velocity.png', label: 'Velocity Field' },
+  ]},
+  { mach: '1.5', label: 'Supersonic', images: [
+    { src: '/images/cfd/cfd_m15_velocity.png', label: 'Velocity Field' },
+    { src: '/images/cfd/cfd_m15_cd.png', label: 'Drag Convergence' },
+  ]},
+  { mach: '2.0', label: 'High Supersonic', images: [
+    { src: '/images/cfd/cfd_m20_velocity.png', label: 'Velocity Field' },
+  ]},
+]
+
+function CFDGallery() {
+  const [activeMach, setActiveMach] = useState(0)
+  const data = CFD_DATA[activeMach]
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+        {CFD_DATA.map((d, i) => (
+          <button key={d.mach} onClick={() => setActiveMach(i)} style={{
+            background: activeMach === i ? C.accentDim : '#fff',
+            border: `1px solid ${activeMach === i ? C.accent : C.border}`,
+            borderTop: `3px solid ${activeMach === i ? C.accent : C.border}`,
+            borderRadius: 8, padding: '12px 20px', cursor: 'pointer', textAlign: 'center', flex: 1,
+          }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: C.textBright }}>M {d.mach}</div>
+            <div style={{ fontSize: 13, color: C.textDim, marginTop: 2 }}>{d.label}</div>
+          </button>
+        ))}
+      </div>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: data.images.length === 1 ? '1fr' : '1fr 1fr',
+        gridTemplateRows: data.images.length > 2 ? '320px 320px' : '400px',
+        gap: 12,
+      }}>
+        {data.images.map((img, i) => (
+          <div key={i} style={{
+            background: '#f5f5f5', border: `1px solid ${C.border}`, borderRadius: 10,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            position: 'relative', overflow: 'hidden',
+          }}>
+            <img src={img.src} alt={img.label} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+            <div style={{
+              position: 'absolute', bottom: 10, left: 14,
+              fontSize: 13, color: C.textDim, fontWeight: 600, letterSpacing: 1.5,
+              background: 'rgba(255,255,255,0.85)', padding: '3px 10px', borderRadius: 4,
+            }}>{img.label} — Mach {data.mach}</div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

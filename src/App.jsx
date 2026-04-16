@@ -5,12 +5,14 @@ import BallisticsTab from './tabs/BallisticsTab.jsx'
 import GuidanceControlTab from './tabs/GuidanceControlTab.jsx'
 import FlightSoftwareTab from './tabs/FlightSoftwareTab.jsx'
 import LiveSimulationTab from './tabs/LiveSimulationTab.jsx'
+import ValidationDashboard from './tabs/ValidationTab2.jsx'
 
 const TABS = [
   { id: 'mechanical', label: 'Mechanical Design' },
   { id: 'ballistics', label: 'Ballistics' },
   { id: 'guidance', label: 'Guidance & Control' },
   { id: 'software', label: 'Flight Software' },
+  { id: 'validation', label: 'Validation' },
   { id: 'simulation', label: 'Live Simulation' },
 ]
 
@@ -77,6 +79,7 @@ export default function App() {
         {activeTab === 'ballistics' && <BallisticsTab />}
         {activeTab === 'guidance' && <GuidanceControlTab />}
         {activeTab === 'software' && <FlightSoftwareTab />}
+        {activeTab === 'validation' && <ValidationDashboard />}
         {activeTab === 'simulation' && <LiveSimulationTab data={data} />}
       </div>
     </div>
