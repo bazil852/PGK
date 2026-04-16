@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { OrbitControls, Grid, Text } from '@react-three/drei'
+import { OrbitControls, Grid, Text, Sky } from '@react-three/drei'
 import * as THREE from 'three'
 import { C, font, panelStyle } from '../theme.js'
 import { loadHistory, saveRun } from '../simHistory.js'
@@ -8,7 +8,7 @@ import SimHistoryPanel from '../SimHistoryPanel.jsx'
 import Projectile from '../Projectile.jsx'
 import TargetMarker from '../TargetMarker.jsx'
 import ImpactMarker from '../ImpactMarker.jsx'
-import GroundPlane from '../GroundPlane.jsx'
+// GroundPlane replaced by inline Terrain component
 
 const S = 1 / 1000
 
@@ -395,6 +395,64 @@ function ImpactBurst({ position, color, active }) {
   )
 }
 
+// --- Procedural terrain with gentle hills ---
+function Terrain() {
+  const geo = useMemo(() => {
+    const width = 50, depth = 30, segsW = 128, segsD = 80
+    const g = new THREE.PlaneGeometry(width, depth, segsW, segsD)
+    const pos = g.attributes.position
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i)
+      // Gentle rolling hills — low frequency noise
+      let h = 0
+      h += Math.sin(x * 0.3 + 1.2) * Math.cos(y * 0.4 + 0.8) * 0.12
+      h += Math.sin(x * 0.7 - 0.5) * Math.cos(y * 0.6 + 2.1) * 0.06
+      h += Math.sin(x * 1.5 + 3.0) * Math.cos(y * 1.2 - 1.0) * 0.03
+      // Keep the flight path area (z near 0) relatively flat
+      const flattenNearCenter = Math.exp(-y * y * 0.08)
+      h *= (1 - flattenNearCenter * 0.7)
+      pos.setZ(i, h)
+    }
+    g.computeVertexNormals()
+    return g
+  }, [])
+
+  const texture = useMemo(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 512; canvas.height = 512
+    const ctx = canvas.getContext('2d')
+    // Base earth tone
+    ctx.fillStyle = '#5a6b3a'
+    ctx.fillRect(0, 0, 512, 512)
+    // Variation
+    for (let i = 0; i < 8000; i++) {
+      const x = Math.random() * 512, y = Math.random() * 512
+      const g = 50 + Math.random() * 40
+      const r = g - 10 + Math.random() * 15
+      ctx.fillStyle = `rgb(${r},${g},${r - 15})`
+      ctx.fillRect(x, y, 2 + Math.random() * 4, 2 + Math.random() * 4)
+    }
+    // Lighter patches
+    for (let i = 0; i < 20; i++) {
+      const x = Math.random() * 512, y = Math.random() * 512
+      ctx.fillStyle = 'rgba(120,140,80,0.15)'
+      ctx.beginPath()
+      ctx.arc(x, y, 20 + Math.random() * 40, 0, Math.PI * 2)
+      ctx.fill()
+    }
+    const tex = new THREE.CanvasTexture(canvas)
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping
+    tex.repeat.set(6, 4)
+    return tex
+  }, [])
+
+  return (
+    <mesh geometry={geo} rotation={[-Math.PI / 2, 0, 0]} position={[8, -0.02, 0]} receiveShadow>
+      <meshStandardMaterial map={texture} roughness={0.95} metalness={0.0} color="#6a7a4a" />
+    </mesh>
+  )
+}
+
 // --- Single flight scene ---
 function FlightScene({ traj, target, impact, color, label, guided, currentT, fired, impacted, correctionPoints }) {
   const interpPos = useCallback((tr, t) => {
@@ -428,19 +486,24 @@ function FlightScene({ traj, target, impact, color, label, guided, currentT, fir
 
   return (
     <>
-      <ambientLight intensity={0.5} color="#d0d8e8" />
-      <directionalLight position={[10, 15, 5]} intensity={1.5} color="#fff5e6" castShadow
-        shadow-mapSize-width={1024} shadow-mapSize-height={1024}
-        shadow-camera-far={50} shadow-camera-left={-15} shadow-camera-right={15}
-        shadow-camera-top={15} shadow-camera-bottom={-15} />
-      <hemisphereLight args={['#8aa4c0', '#2a3a28', 0.4]} />
-      <color attach="background" args={['#1a2030']} />
-      <fog attach="fog" args={['#1a2030', 15, 35]} />
-      <GroundPlane />
-      <Grid args={[20, 20]} position={[5, 0.001, 0]}
-        cellSize={0.5} cellThickness={0.4} cellColor="#1e2a1e"
-        sectionSize={2} sectionThickness={0.8} sectionColor="#2a3d2a"
-        fadeDistance={25} fadeStrength={1} infiniteGrid />
+      {/* Sky */}
+      <Sky sunPosition={[80, 20, 50]} turbidity={8} rayleigh={0.5} mieCoefficient={0.005} mieDirectionalG={0.8} />
+
+      {/* Lighting */}
+      <ambientLight intensity={0.6} color="#e8e0d0" />
+      <directionalLight position={[80, 30, 50]} intensity={1.8} color="#fff5e0" castShadow
+        shadow-mapSize-width={2048} shadow-mapSize-height={2048}
+        shadow-camera-far={60} shadow-camera-left={-20} shadow-camera-right={20}
+        shadow-camera-top={20} shadow-camera-bottom={-20} />
+      <hemisphereLight args={['#87ceeb', '#556b2f', 0.5]} />
+      <fog attach="fog" args={['#c8d8e8', 18, 45]} />
+
+      {/* Terrain */}
+      <Terrain />
+      <Grid args={[30, 30]} position={[5, 0.005, 0]}
+        cellSize={0.5} cellThickness={0.3} cellColor="rgba(80,100,60,0.15)"
+        sectionSize={2} sectionThickness={0.6} sectionColor="rgba(80,100,60,0.25)"
+        fadeDistance={20} fadeStrength={1.5} infiniteGrid />
       <mesh position={[0, 0, 0]}>
         <cylinderGeometry args={[0.03, 0.05, 0.15, 8]} />
         <meshStandardMaterial color="#6a6a6a" metalness={0.7} roughness={0.4} />
