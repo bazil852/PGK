@@ -888,7 +888,6 @@ function ParameterPanel({ params, setParams, design, setDesign, sensors, setSens
             <span style={{ fontSize: 12, color: '#888', letterSpacing: 2, marginRight: 8 }}>SENSORS</span>
             {[
               { key: 'gps', label: 'GPS', spec: '10 Hz · 5m CEP' },
-              { key: 'imu', label: 'IMU', spec: '1 kHz · gyro+accel' },
               { key: 'mag', label: 'MAG', spec: '100 Hz · ±2° hdg' },
             ].map(s => (
               <button key={s.key}
