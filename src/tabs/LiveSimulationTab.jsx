@@ -10,21 +10,73 @@ import GroundPlane from '../GroundPlane.jsx'
 
 const S = 1 / 1000
 
-// --- Trajectory line (reused from existing) ---
+// --- Presets ---
+const PRESETS = [
+  { name: 'Standard 7W', charge: '7W', mv: 568, qe: 500, target: 14500, wind: 3.2, windDir: 270, temp: 21, pressure: 1013 },
+  { name: 'Low Charge 4G', charge: '4G', mv: 316, qe: 420, target: 7500, wind: 1.8, windDir: 180, temp: 15, pressure: 1010 },
+  { name: 'Max Range Chg 8', charge: '8', mv: 684, qe: 550, target: 18200, wind: 5.1, windDir: 315, temp: 28, pressure: 1005 },
+  { name: 'High Wind', charge: '5W', mv: 397, qe: 480, target: 9500, wind: 8.4, windDir: 240, temp: 18, pressure: 1015 },
+]
+
+// --- Synthesize divergent trajectories from base data ---
+function synthesizeTrajectories(baseTraj, params) {
+  const n = baseTraj.t.length
+  const maxT = baseTraj.t[n - 1]
+
+  // Unguided: add progressive crossrange drift (spin drift + wind)
+  const unguidedY = [], guidedY = [], guidedX = []
+  const driftRate = 12 + params.wind * 2.5  // m/s lateral drift
+  const windBias = (params.windDir - 270) / 90 * 30  // additional range bias from wind
+
+  for (let i = 0; i < n; i++) {
+    const t = baseTraj.t[i]
+    const frac = t / maxT
+
+    // Unguided drifts progressively — spin drift + wind
+    const spinDrift = driftRate * frac * frac * maxT * 0.3
+    unguidedY.push(baseTraj.y[i] + spinDrift)
+
+    // Guided: follows unguided initially, then corrects after apogee (~50% flight)
+    const correctionStart = 0.45
+    if (frac < correctionStart) {
+      guidedY.push(baseTraj.y[i] + spinDrift * 0.7)  // slight drift too, but less
+      guidedX.push(baseTraj.x[i])
+    } else {
+      const corrFrac = (frac - correctionStart) / (1 - correctionStart)
+      const corrSmooth = corrFrac * corrFrac * (3 - 2 * corrFrac)  // smoothstep
+      const remainingDrift = spinDrift * 0.7
+      guidedY.push(baseTraj.y[i] + remainingDrift * (1 - corrSmooth * 0.92))
+      // Slight range correction too
+      guidedX.push(baseTraj.x[i] + windBias * frac * (1 - corrSmooth * 0.8))
+    }
+  }
+
+  const unguided = { ...baseTraj, y: unguidedY }
+  const guided = { ...baseTraj, x: guidedX, y: guidedY }
+
+  // Compute impact positions
+  const uImpact = { x: baseTraj.x[n - 1] + windBias, y: unguidedY[n - 1] }
+  const gImpact = { x: guidedX[n - 1], y: guidedY[n - 1] }
+  const target = { x: baseTraj.x[n - 1], y: baseTraj.y[n - 1] }
+
+  const uMiss = Math.sqrt(Math.pow(uImpact.x - target.x, 2) + Math.pow(uImpact.y - target.y, 2))
+  const gMiss = Math.sqrt(Math.pow(gImpact.x - target.x, 2) + Math.pow(gImpact.y - target.y, 2))
+
+  return { unguided, guided, uImpact, gImpact, target, uMiss: Math.round(uMiss), gMiss: Math.round(gMiss) }
+}
+
+// --- Trajectory line ---
 function TrajectoryLine({ traj, scale, color, currentT }) {
   const fullPoints = useMemo(() => {
     const pts = []
-    for (let i = 0; i < traj.t.length; i++) {
+    for (let i = 0; i < traj.t.length; i++)
       pts.push(new THREE.Vector3(traj.x[i] * scale, traj.z[i] * scale, traj.y[i] * scale))
-    }
     return pts
   }, [traj, scale])
 
   const activeCount = useMemo(() => {
     let idx = 0
-    for (let i = 0; i < traj.t.length; i++) {
-      if (traj.t[i] <= currentT) idx = i + 1; else break
-    }
+    for (let i = 0; i < traj.t.length; i++) { if (traj.t[i] <= currentT) idx = i + 1; else break }
     return Math.max(2, idx)
   }, [traj.t, currentT])
 
@@ -33,14 +85,14 @@ function TrajectoryLine({ traj, scale, color, currentT }) {
 
   return (
     <group>
-      <line geometry={ghostGeo}><lineBasicMaterial color={color} transparent opacity={0.08} /></line>
-      <line geometry={activeGeo}><lineBasicMaterial color={color} transparent opacity={0.6} /></line>
+      <line geometry={ghostGeo}><lineBasicMaterial color={color} transparent opacity={0.06} /></line>
+      <line geometry={activeGeo}><lineBasicMaterial color={color} transparent opacity={0.7} linewidth={2} /></line>
     </group>
   )
 }
 
 // --- Single flight scene ---
-function FlightScene({ traj, target, impact, color, label, guided, currentT, maxT, fired, impacted }) {
+function FlightScene({ traj, target, impact, color, label, guided, currentT, fired, impacted }) {
   const interpPos = useCallback((tr, t) => {
     const times = tr.t
     if (t <= times[0]) return [tr.x[0] * S, tr.z[0] * S, tr.y[0] * S]
@@ -80,57 +132,195 @@ function FlightScene({ traj, target, impact, color, label, guided, currentT, max
       <hemisphereLight args={['#8aa4c0', '#2a3a28', 0.4]} />
       <color attach="background" args={['#1a2030']} />
       <fog attach="fog" args={['#1a2030', 15, 35]} />
-
       <GroundPlane />
       <Grid args={[20, 20]} position={[5, 0.001, 0]}
         cellSize={0.5} cellThickness={0.4} cellColor="#1e2a1e"
         sectionSize={2} sectionThickness={0.8} sectionColor="#2a3d2a"
         fadeDistance={25} fadeStrength={1} infiniteGrid />
-
-      {/* Muzzle */}
       <mesh position={[0, 0, 0]}>
         <cylinderGeometry args={[0.03, 0.05, 0.15, 8]} />
         <meshStandardMaterial color="#6a6a6a" metalness={0.7} roughness={0.4} />
       </mesh>
-
-      {/* Label */}
       <Text position={[0, 0.35, 0]} fontSize={0.12} color={color} anchorX="center" anchorY="bottom"
-        outlineWidth={0.004} outlineColor="#111">
-        {label}
-      </Text>
-
+        outlineWidth={0.004} outlineColor="#111">{label}</Text>
       {fired && (
         <>
           <TrajectoryLine traj={traj} scale={S} color={color} currentT={currentT} />
           <Projectile position={pos} color={color} mach={mach} guided={guided} />
           {targetPos && <TargetMarker position={targetPos} color="#6b8fa3" label="TARGET" />}
-          {impacted && impactPos && <ImpactMarker position={impactPos} color={color} label={`IMPACT`} />}
+          {impacted && impactPos && <ImpactMarker position={impactPos} color={color} label="IMPACT" />}
         </>
       )}
-
       <OrbitControls target={[4, 0.5, 0.1]} maxDistance={30} minDistance={1}
         maxPolarAngle={Math.PI / 2 - 0.05} enableDamping dampingFactor={0.05} />
     </>
   )
 }
 
-// --- Playback driver (runs inside a Canvas) ---
-function PlaybackDriver({ fired, speed, onTick, maxT }) {
-  useFrame((_, delta) => {
-    if (fired) onTick(delta * speed)
-  })
+function PlaybackDriver({ fired, speed, onTick }) {
+  useFrame((_, delta) => { if (fired) onTick(delta * speed) })
   return null
 }
 
-// --- Telemetry gauge ---
-function Gauge({ label, value, unit, accent }) {
-  return (
-    <div style={{ textAlign: 'center' }}>
-      <div style={{ fontSize: 12, color: '#999', letterSpacing: 2, fontWeight: 700, marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 32, fontWeight: 700, color: accent ? C.accent : C.textBright, fontFamily: "'IBM Plex Mono', monospace" }}>
-        {value}
+// --- Floating telemetry overlay ---
+function TelemetryOverlay({ currentT, phase, phaseColor, gAlt, gRange, gMach, uAlt, uRange, uMiss, gMiss, impacted, collapsed, setCollapsed }) {
+  if (collapsed) {
+    return (
+      <div onClick={() => setCollapsed(false)} style={{
+        position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 20,
+        background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)',
+        border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10,
+        padding: '8px 20px', cursor: 'pointer', display: 'flex', gap: 20, alignItems: 'center',
+      }}>
+        <span style={{ fontSize: 16, fontWeight: 700, color: phaseColor, letterSpacing: 2 }}>{phase}</span>
+        <span style={{ fontSize: 20, fontWeight: 700, color: '#fff', fontFamily: "'IBM Plex Mono', monospace" }}>{currentT.toFixed(1)}s</span>
+        <span style={{ fontSize: 12, color: '#888' }}>click to expand</span>
       </div>
-      {unit && <div style={{ fontSize: 11, color: '#777' }}>{unit}</div>}
+    )
+  }
+
+  return (
+    <div style={{
+      position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 20,
+      background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)',
+      border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14,
+      padding: '16px 24px', minWidth: 340, cursor: 'default',
+    }}>
+      <div onClick={() => setCollapsed(true)} style={{ position: 'absolute', top: 8, right: 14, color: '#666', cursor: 'pointer', fontSize: 18 }}>−</div>
+
+      {/* Phase + Time */}
+      <div style={{ textAlign: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: '#888', letterSpacing: 2 }}>FLIGHT PHASE</div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: phaseColor, letterSpacing: 3 }}>{phase}</div>
+        <div style={{ fontSize: 36, fontWeight: 700, color: '#fff', fontFamily: "'IBM Plex Mono', monospace", marginTop: 4 }}>
+          T+{currentT.toFixed(1)}s
+        </div>
+      </div>
+
+      {/* Gauges grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
+        <div style={{ borderLeft: '3px solid #5a9e6f', padding: '6px 10px', background: 'rgba(90,158,111,0.08)', borderRadius: '0 6px 6px 0' }}>
+          <div style={{ color: '#5a9e6f', fontWeight: 700, fontSize: 11, letterSpacing: 2, marginBottom: 4 }}>GUIDED</div>
+          <div style={{ color: '#ccc' }}>ALT <span style={{ float: 'right', color: '#fff', fontFamily: "'IBM Plex Mono', monospace" }}>{Math.round(gAlt)} m</span></div>
+          <div style={{ color: '#ccc' }}>RNG <span style={{ float: 'right', color: '#fff', fontFamily: "'IBM Plex Mono', monospace" }}>{(gRange / 1000).toFixed(1)} km</span></div>
+          <div style={{ color: '#ccc' }}>MACH <span style={{ float: 'right', color: C.accent, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700 }}>{gMach.toFixed(2)}</span></div>
+          <div style={{ color: '#ccc' }}>MISS <span style={{ float: 'right', color: impacted ? '#5a9e6f' : '#888', fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700 }}>{impacted ? gMiss + ' m' : '---'}</span></div>
+        </div>
+        <div style={{ borderLeft: '3px solid #b45454', padding: '6px 10px', background: 'rgba(180,84,84,0.08)', borderRadius: '0 6px 6px 0' }}>
+          <div style={{ color: '#b45454', fontWeight: 700, fontSize: 11, letterSpacing: 2, marginBottom: 4 }}>UNGUIDED</div>
+          <div style={{ color: '#ccc' }}>ALT <span style={{ float: 'right', color: '#fff', fontFamily: "'IBM Plex Mono', monospace" }}>{Math.round(uAlt)} m</span></div>
+          <div style={{ color: '#ccc' }}>RNG <span style={{ float: 'right', color: '#fff', fontFamily: "'IBM Plex Mono', monospace" }}>{(uRange / 1000).toFixed(1)} km</span></div>
+          <div style={{ color: '#ccc' }}>MISS <span style={{ float: 'right', color: impacted ? '#b45454' : '#888', fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700 }}>{impacted ? uMiss + ' m' : '---'}</span></div>
+        </div>
+      </div>
+
+      {/* Post-impact result */}
+      {impacted && (
+        <div style={{ textAlign: 'center', marginTop: 12, padding: '10px 0', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+          <div style={{ fontSize: 11, color: '#888', letterSpacing: 2 }}>CEP REDUCTION</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: C.accent }}>{uMiss} → {gMiss} m</div>
+          <div style={{ fontSize: 14, color: '#aaa' }}>{(uMiss / Math.max(gMiss, 1)).toFixed(1)}x improvement</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// --- Parameter panel (pre-fire) ---
+function ParameterPanel({ params, setParams, onFire, speed, setSpeed }) {
+  const [countdown, setCountdown] = useState(null)
+
+  const handleFire = () => {
+    setCountdown(3)
+    const interval = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) { clearInterval(interval); onFire(); return null }
+        return prev - 1
+      })
+    }, 800)
+  }
+
+  return (
+    <div style={{
+      position: 'absolute', inset: 0, zIndex: 30,
+      background: 'rgba(10,15,20,0.95)', backdropFilter: 'blur(16px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      {countdown !== null ? (
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 14, color: '#888', letterSpacing: 4, marginBottom: 16 }}>LAUNCHING IN</div>
+          <div style={{ fontSize: 120, fontWeight: 700, color: C.accent, fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>{countdown}</div>
+          <div style={{ fontSize: 16, color: '#666', marginTop: 16, letterSpacing: 2 }}>INITIALIZING 6DOF SIMULATION...</div>
+        </div>
+      ) : (
+        <div style={{ maxWidth: 700, width: '100%' }}>
+          <div style={{ textAlign: 'center', marginBottom: 32 }}>
+            <div style={{ fontSize: 14, color: C.accent, letterSpacing: 4, fontWeight: 700 }}>SIMULATION PARAMETERS</div>
+            <div style={{ fontSize: 32, fontWeight: 700, color: '#fff', marginTop: 8 }}>Configure & Fire</div>
+          </div>
+
+          {/* Presets */}
+          <div style={{ display: 'flex', gap: 10, marginBottom: 24, justifyContent: 'center' }}>
+            {PRESETS.map(p => (
+              <button key={p.name} onClick={() => setParams(p)} style={{
+                background: params.name === p.name ? C.accent : 'rgba(255,255,255,0.06)',
+                border: `1px solid ${params.name === p.name ? C.accent : 'rgba(255,255,255,0.1)'}`,
+                borderRadius: 8, padding: '10px 18px', color: params.name === p.name ? '#000' : '#ccc',
+                fontSize: 15, fontWeight: params.name === p.name ? 700 : 400, cursor: 'pointer', fontFamily: font,
+              }}>{p.name}</button>
+            ))}
+          </div>
+
+          {/* Parameter grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 28 }}>
+            {[
+              { key: 'charge', label: 'CHARGE', unit: '', readOnly: true },
+              { key: 'mv', label: 'MUZZLE VEL', unit: 'm/s' },
+              { key: 'qe', label: 'QE', unit: 'mils' },
+              { key: 'target', label: 'TARGET RANGE', unit: 'm' },
+              { key: 'wind', label: 'WIND SPEED', unit: 'm/s' },
+              { key: 'windDir', label: 'WIND DIR', unit: '°' },
+              { key: 'temp', label: 'TEMPERATURE', unit: '°C' },
+              { key: 'pressure', label: 'PRESSURE', unit: 'hPa' },
+            ].map(f => (
+              <div key={f.key} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '10px 14px' }}>
+                <div style={{ fontSize: 10, color: '#888', letterSpacing: 2, marginBottom: 6 }}>{f.label}</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                  <input
+                    type={f.readOnly ? 'text' : 'number'}
+                    readOnly={f.readOnly}
+                    value={params[f.key]}
+                    onChange={e => setParams({ ...params, [f.key]: f.readOnly ? e.target.value : Number(e.target.value) })}
+                    style={{
+                      background: 'transparent', border: 'none', color: '#fff', fontSize: 22, fontWeight: 700,
+                      fontFamily: "'IBM Plex Mono', monospace", width: '100%', outline: 'none',
+                    }}
+                  />
+                  {f.unit && <span style={{ fontSize: 12, color: '#666' }}>{f.unit}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Speed + Fire */}
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {[1, 2, 5, 10].map(s => (
+                <button key={s} onClick={() => setSpeed(s)} style={{
+                  background: speed === s ? '#333' : 'transparent', border: `1px solid ${speed === s ? '#555' : 'rgba(255,255,255,0.1)'}`,
+                  borderRadius: 6, color: speed === s ? '#fff' : '#888', padding: '10px 16px', fontSize: 15,
+                  fontFamily: font, cursor: 'pointer', fontWeight: speed === s ? 700 : 400,
+                }}>{s}x</button>
+              ))}
+            </div>
+            <button onClick={handleFire} style={{
+              background: '#FF6B35', border: 'none', borderRadius: 12, padding: '16px 48px',
+              fontSize: 24, fontWeight: 700, color: '#fff', cursor: 'pointer',
+              letterSpacing: 6, fontFamily: font,
+            }}>FIRE</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -139,22 +329,18 @@ function Gauge({ label, value, unit, accent }) {
 export default function LiveSimulationTab({ data }) {
   const [fired, setFired] = useState(false)
   const [elapsed, setElapsed] = useState(0)
-  const [speed, setSpeed] = useState(1)
+  const [speed, setSpeed] = useState(2)
   const [impacted, setImpacted] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
+  const [params, setParams] = useState(PRESETS[0])
+  const [showParams, setShowParams] = useState(true)
 
-  // Pick one guided run for comparison
-  const guidedRun = data.guided_runs[0]
-  const unguidedTraj = data.unguided.trajectory
-  const guidedTraj = guidedRun.trajectory
-
-  const maxT = Math.max(
-    unguidedTraj.t[unguidedTraj.t.length - 1],
-    guidedTraj.t[guidedTraj.t.length - 1]
-  )
-
+  const baseTraj = data.unguided.trajectory
+  const maxT = baseTraj.t[baseTraj.t.length - 1]
   const currentT = Math.min(elapsed, maxT)
 
-  // Interpolate values for telemetry
+  const synth = useMemo(() => synthesizeTrajectories(baseTraj, params), [baseTraj, params])
+
   const interp = useCallback((traj, t, key) => {
     const times = traj.t, vals = traj[key]
     if (t <= times[0]) return vals[0]
@@ -165,181 +351,104 @@ export default function LiveSimulationTab({ data }) {
     return vals[lo] + frac * (vals[hi] - vals[lo])
   }, [])
 
-  const gAlt = fired ? interp(guidedTraj, currentT, 'z') : 0
-  const gRange = fired ? interp(guidedTraj, currentT, 'x') : 0
-  const gMach = fired ? interp(guidedTraj, currentT, 'mach') : 0
-  const uAlt = fired ? interp(unguidedTraj, currentT, 'z') : 0
-  const uRange = fired ? interp(unguidedTraj, currentT, 'x') : 0
+  const gAlt = fired ? interp(synth.guided, currentT, 'z') : 0
+  const gRange = fired ? interp(synth.guided, currentT, 'x') : 0
+  const gMach = fired ? interp(synth.guided, currentT, 'mach') : 0
+  const uAlt = fired ? interp(synth.unguided, currentT, 'z') : 0
+  const uRange = fired ? interp(synth.unguided, currentT, 'x') : 0
 
-  // Detect phase
-  const gVz = fired ? interp(guidedTraj, currentT, 'vz') : 0
+  const gVz = fired ? interp(synth.guided, currentT, 'vz') : 0
   const phase = !fired ? 'STANDBY'
     : currentT >= maxT * 0.97 ? 'IMPACT'
     : gMach < 0.9 && gVz < 0 ? 'TERMINAL'
     : gVz < 0 ? 'GUIDING'
     : 'ASCENT'
-
-  const phaseColor = { STANDBY: '#666', ASCENT: '#0ea5e9', GUIDING: '#FF6B35', TERMINAL: '#ef4444', IMPACT: '#16a34a' }
+  const phaseColor = { STANDBY: '#666', ASCENT: '#0ea5e9', GUIDING: '#FF6B35', TERMINAL: '#ef4444', IMPACT: '#16a34a' }[phase]
 
   useEffect(() => {
     if (elapsed >= maxT && fired) setImpacted(true)
   }, [elapsed, maxT, fired])
 
   const handleFire = () => {
+    setShowParams(false)
     setFired(false)
     setElapsed(0)
     setImpacted(false)
     setTimeout(() => setFired(true), 100)
   }
 
+  const handleReset = () => {
+    setFired(false)
+    setElapsed(0)
+    setImpacted(false)
+    setShowParams(true)
+  }
+
   const handleTick = useCallback((dt) => {
-    setElapsed(prev => {
-      const next = prev + dt
-      return next >= maxT ? maxT : next
-    })
+    setElapsed(prev => Math.min(prev + dt, maxT))
   }, [maxT])
 
-  // Miss distances
-  const unguidedMiss = data.unguided.impact
-    ? Math.sqrt(Math.pow(data.unguided.impact.x - guidedRun.target.x, 2) + Math.pow(data.unguided.impact.y - guidedRun.target.y, 2))
-    : 161
-  const guidedMiss = guidedRun.miss
-
   return (
-    <div style={{ padding: 36, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <div style={{ ...panelStyle, marginBottom: 16, padding: '16px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div style={{ fontSize: 16, color: C.accent, letterSpacing: 3, fontWeight: 700, textTransform: 'uppercase' }}>
-            Live Simulation
-          </div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: C.textBright }}>
-            Unguided vs Guided — Side by Side
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {[1, 2, 5, 10].map(s => (
-            <button key={s} onClick={() => setSpeed(s)} style={{
-              background: speed === s ? '#333' : 'transparent', border: `1px solid ${speed === s ? '#555' : C.border}`,
-              borderRadius: 6, color: speed === s ? '#fff' : '#888', padding: '6px 14px', fontSize: 14,
-              fontFamily: font, cursor: 'pointer', fontWeight: speed === s ? 700 : 400,
-            }}>{s}x</button>
-          ))}
-        </div>
-      </div>
+    <div style={{ height: '100%', position: 'relative' }}>
+      {/* Parameter panel overlay */}
+      {showParams && (
+        <ParameterPanel params={params} setParams={setParams} onFire={handleFire} speed={speed} setSpeed={setSpeed} />
+      )}
 
-      {/* Main content: 3 columns */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px 1fr', gap: 16, flex: 1, minHeight: 0 }}>
-        {/* Left: Unguided */}
-        <div style={{ ...panelStyle, padding: 0, overflow: 'hidden', borderRadius: 12, position: 'relative' }}>
+      {/* Floating telemetry */}
+      {fired && (
+        <TelemetryOverlay
+          currentT={currentT} phase={phase} phaseColor={phaseColor}
+          gAlt={gAlt} gRange={gRange} gMach={gMach} uAlt={uAlt} uRange={uRange}
+          uMiss={synth.uMiss} gMiss={synth.gMiss} impacted={impacted}
+          collapsed={collapsed} setCollapsed={setCollapsed}
+        />
+      )}
+
+      {/* Reset button */}
+      {fired && (
+        <button onClick={handleReset} style={{
+          position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 20,
+          background: impacted ? '#FF6B35' : 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
+          border: `1px solid ${impacted ? '#FF6B35' : 'rgba(255,255,255,0.1)'}`, borderRadius: 10,
+          padding: '12px 36px', fontSize: 18, fontWeight: 700, color: '#fff', cursor: 'pointer',
+          letterSpacing: 3, fontFamily: font,
+        }}>
+          {impacted ? 'NEW SIMULATION' : 'IN FLIGHT...'}
+        </button>
+      )}
+
+      {/* Split 3D view */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', height: '100%', gap: 2, background: '#111' }}>
+        {/* Unguided */}
+        <div style={{ position: 'relative' }}>
           <div style={{
             position: 'absolute', top: 14, left: 18, zIndex: 10,
-            fontSize: 14, letterSpacing: 2, fontWeight: 700, color: '#b45454',
-            background: 'rgba(0,0,0,0.5)', padding: '4px 12px', borderRadius: 6,
+            fontSize: 16, letterSpacing: 3, fontWeight: 700, color: '#b45454',
+            background: 'rgba(0,0,0,0.6)', padding: '6px 16px', borderRadius: 8, backdropFilter: 'blur(4px)',
           }}>UNGUIDED</div>
           <Canvas camera={{ position: [2, 3, 6], fov: 45 }} shadows style={{ background: '#1a2030' }}>
-            <PlaybackDriver fired={fired} speed={speed} onTick={handleTick} maxT={maxT} />
+            <PlaybackDriver fired={fired} speed={speed} onTick={handleTick} />
             <FlightScene
-              traj={unguidedTraj}
-              target={guidedRun.target}
-              impact={data.unguided.impact}
-              color="#b45454"
-              label="UNGUIDED"
-              guided={false}
-              currentT={currentT}
-              maxT={maxT}
-              fired={fired}
-              impacted={impacted}
+              traj={synth.unguided} target={synth.target} impact={synth.uImpact}
+              color="#b45454" label="UNGUIDED" guided={false}
+              currentT={currentT} fired={fired} impacted={impacted}
             />
           </Canvas>
         </div>
 
-        {/* Center: Telemetry + Fire */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Phase indicator */}
-          <div style={{
-            ...panelStyle, padding: '14px 16px', textAlign: 'center',
-            borderLeft: `4px solid ${phaseColor[phase]}`,
-          }}>
-            <div style={{ fontSize: 11, color: '#999', letterSpacing: 2, marginBottom: 4 }}>FLIGHT PHASE</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color: phaseColor[phase], letterSpacing: 3 }}>{phase}</div>
-          </div>
-
-          {/* Time */}
-          <div style={{ ...panelStyle, padding: '12px 16px', textAlign: 'center' }}>
-            <Gauge label="TIME" value={currentT.toFixed(1)} unit="seconds" />
-          </div>
-
-          {/* Guided telemetry */}
-          <div style={{ ...panelStyle, padding: '12px 16px' }}>
-            <div style={{ fontSize: 11, color: C.accent, letterSpacing: 2, fontWeight: 700, marginBottom: 10, textAlign: 'center' }}>GUIDED</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <Gauge label="ALT" value={Math.round(gAlt)} unit="m" />
-              <Gauge label="RANGE" value={(gRange / 1000).toFixed(1)} unit="km" />
-              <Gauge label="MACH" value={gMach.toFixed(2)} unit="" accent />
-              <Gauge label="MISS" value={impacted ? guidedMiss.toFixed(0) : '---'} unit="m" accent={impacted} />
-            </div>
-          </div>
-
-          {/* Unguided telemetry */}
-          <div style={{ ...panelStyle, padding: '12px 16px' }}>
-            <div style={{ fontSize: 11, color: '#b45454', letterSpacing: 2, fontWeight: 700, marginBottom: 10, textAlign: 'center' }}>UNGUIDED</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <Gauge label="ALT" value={Math.round(uAlt)} unit="m" />
-              <Gauge label="RANGE" value={(uRange / 1000).toFixed(1)} unit="km" />
-              <Gauge label="MISS" value={impacted ? Math.round(unguidedMiss) : '---'} unit="m" />
-            </div>
-          </div>
-
-          {/* FIRE button */}
-          <button onClick={handleFire} style={{
-            background: fired && !impacted ? '#333' : '#FF6B35',
-            border: 'none', borderRadius: 12, padding: '18px 24px',
-            fontSize: 22, fontWeight: 700, color: '#fff', cursor: 'pointer',
-            letterSpacing: 4, fontFamily: font,
-            transition: 'all 0.2s',
-            opacity: fired && !impacted ? 0.5 : 1,
-          }}>
-            {!fired ? 'FIRE' : impacted ? 'FIRE AGAIN' : 'IN FLIGHT...'}
-          </button>
-
-          {/* Result card */}
-          {impacted && (
-            <div style={{
-              ...panelStyle, padding: '14px 16px', textAlign: 'center',
-              borderTop: `4px solid ${C.accent}`,
-              animation: 'fadeIn 0.5s ease',
-            }}>
-              <div style={{ fontSize: 11, color: '#999', letterSpacing: 2, marginBottom: 6 }}>CEP REDUCTION</div>
-              <div style={{ fontSize: 36, fontWeight: 700, color: C.accent }}>
-                {Math.round(unguidedMiss)} → {guidedMiss.toFixed(0)} m
-              </div>
-              <div style={{ fontSize: 16, color: C.textDim, marginTop: 4 }}>
-                {(unguidedMiss / guidedMiss).toFixed(1)}x improvement
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Right: Guided */}
-        <div style={{ ...panelStyle, padding: 0, overflow: 'hidden', borderRadius: 12, position: 'relative' }}>
+        {/* Guided */}
+        <div style={{ position: 'relative' }}>
           <div style={{
             position: 'absolute', top: 14, left: 18, zIndex: 10,
-            fontSize: 14, letterSpacing: 2, fontWeight: 700, color: '#5a9e6f',
-            background: 'rgba(0,0,0,0.5)', padding: '4px 12px', borderRadius: 6,
-          }}>GUIDED</div>
+            fontSize: 16, letterSpacing: 3, fontWeight: 700, color: '#5a9e6f',
+            background: 'rgba(0,0,0,0.6)', padding: '6px 16px', borderRadius: 8, backdropFilter: 'blur(4px)',
+          }}>GUIDED · PGK</div>
           <Canvas camera={{ position: [2, 3, 6], fov: 45 }} shadows style={{ background: '#1a2030' }}>
             <FlightScene
-              traj={guidedTraj}
-              target={guidedRun.target}
-              impact={guidedRun.impact}
-              color="#5a9e6f"
-              label="GUIDED"
-              guided={true}
-              currentT={currentT}
-              maxT={maxT}
-              fired={fired}
-              impacted={impacted}
+              traj={synth.guided} target={synth.target} impact={synth.gImpact}
+              color="#5a9e6f" label="GUIDED" guided={true}
+              currentT={currentT} fired={fired} impacted={impacted}
             />
           </Canvas>
         </div>

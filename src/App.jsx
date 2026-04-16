@@ -5,6 +5,7 @@ import BallisticsTab from './tabs/BallisticsTab.jsx'
 import GuidanceControlTab from './tabs/GuidanceControlTab.jsx'
 import FlightSoftwareTab from './tabs/FlightSoftwareTab.jsx'
 import LiveSimulationTab from './tabs/LiveSimulationTab.jsx'
+import RawDataTab from './tabs/RawDataTab.jsx'
 
 const TABS = [
   { id: 'mechanical', label: 'Mechanical Design' },
@@ -12,6 +13,7 @@ const TABS = [
   { id: 'guidance', label: 'Guidance & Control' },
   { id: 'software', label: 'Flight Software' },
   { id: 'simulation', label: 'Live Simulation' },
+  { id: 'rawdata', label: 'Raw Data' },
 ]
 
 export default function App() {
@@ -80,6 +82,7 @@ export default function App() {
         {activeTab === 'guidance' && <GuidanceControlTab />}
         {activeTab === 'software' && <FlightSoftwareTab />}
         {activeTab === 'simulation' && <LiveSimulationTab data={data} />}
+        {activeTab === 'rawdata' && <RawDataTab data={data} />}
       </div>
     </div>
   )
