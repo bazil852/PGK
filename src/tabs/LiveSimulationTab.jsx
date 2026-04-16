@@ -3,6 +3,8 @@ import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, Grid, Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { C, font, panelStyle } from '../theme.js'
+import { loadHistory, saveRun } from '../simHistory.js'
+import SimHistoryPanel from '../SimHistoryPanel.jsx'
 import Projectile from '../Projectile.jsx'
 import TargetMarker from '../TargetMarker.jsx'
 import ImpactMarker from '../ImpactMarker.jsx'
@@ -418,17 +420,16 @@ function TelemetryOverlay({ currentT, phase, phaseColor, gAlt, gRange, gMach, uA
 }
 
 // --- Parameter panel (pre-fire) ---
-function ParameterPanel({ params, setParams, design, setDesign, onFire, speed, setSpeed }) {
-  const [countdown, setCountdown] = useState(null)
+function ParameterPanel({ params, setParams, design, setDesign, onFire, speed, setSpeed, onShowHistory, historyCount }) {
+  const [bootPhase, setBootPhase] = useState(null)  // null | 'connecting' | 'auth' | 'init' | 'starting'
+  const [showUpload, setShowUpload] = useState(false)
 
   const handleFire = () => {
-    setCountdown(3)
-    const interval = setInterval(() => {
-      setCountdown(prev => {
-        if (prev <= 1) { clearInterval(interval); onFire(); return null }
-        return prev - 1
-      })
-    }, 800)
+    setBootPhase('connecting')
+    setTimeout(() => setBootPhase('auth'), 900)
+    setTimeout(() => setBootPhase('init'), 2000)
+    setTimeout(() => setBootPhase('starting'), 3000)
+    setTimeout(() => { setBootPhase(null); onFire() }, 3800)
   }
 
   return (
@@ -438,15 +439,39 @@ function ParameterPanel({ params, setParams, design, setDesign, onFire, speed, s
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       overflow: 'auto',
     }}>
-      {countdown !== null ? (
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 14, color: '#888', letterSpacing: 4, marginBottom: 16 }}>LAUNCHING IN</div>
-          <div style={{ fontSize: 120, fontWeight: 700, color: C.accent, fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>{countdown}</div>
-          <div style={{ fontSize: 14, color: '#666', marginTop: 16, letterSpacing: 2 }}>
-            INITIALIZING 6DOF · {design.name.toUpperCase()} · {params.charge}
-          </div>
-          <div style={{ fontSize: 12, color: design.id === 4 ? '#5a9e6f' : '#b45454', marginTop: 8, letterSpacing: 1.5 }}>
-            {design.note}
+      {bootPhase !== null ? (
+        <div style={{ textAlign: 'center', fontFamily: "'IBM Plex Mono', monospace" }}>
+          <div style={{ fontSize: 14, color: '#888', letterSpacing: 4, marginBottom: 24 }}>ESFORGE SIMULATION SERVER</div>
+          {['connecting', 'auth', 'init', 'starting'].map((phase, i) => {
+            const labels = {
+              connecting: 'Connecting to simulation server...',
+              auth: 'Auth handshake · TLS 1.3 · token verified',
+              init: `Initializing 6DOF · ${design.name} · ${params.charge}`,
+              starting: 'Allocating compute · starting simulation...',
+            }
+            const reached = ['connecting', 'auth', 'init', 'starting'].indexOf(bootPhase) >= i
+            const current = bootPhase === phase
+            return (
+              <div key={phase} style={{
+                fontSize: 16, padding: '8px 0',
+                color: current ? '#fff' : reached ? '#4ade80' : '#333',
+                transition: 'color 0.3s',
+              }}>
+                <span style={{ color: reached && !current ? '#4ade80' : current ? C.accent : '#333', marginRight: 12 }}>
+                  {reached && !current ? '✓' : current ? '›' : '○'}
+                </span>
+                {labels[phase]}
+              </div>
+            )
+          })}
+          <div style={{
+            marginTop: 24, width: 300, height: 3, background: '#222', borderRadius: 2, margin: '24px auto 0',
+          }}>
+            <div style={{
+              height: '100%', background: C.accent, borderRadius: 2,
+              width: `${(['connecting', 'auth', 'init', 'starting'].indexOf(bootPhase) + 1) * 25}%`,
+              transition: 'width 0.4s ease',
+            }} />
           </div>
         </div>
       ) : (
@@ -456,26 +481,54 @@ function ParameterPanel({ params, setParams, design, setDesign, onFire, speed, s
             <div style={{ fontSize: 32, fontWeight: 700, color: '#fff', marginTop: 8 }}>Configure & Fire</div>
           </div>
 
-          {/* Design selector */}
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 11, color: '#888', letterSpacing: 3, marginBottom: 10, textAlign: 'center' }}>GUIDED DESIGN ITERATION</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-              {DESIGNS.map(d => (
-                <button key={d.id} onClick={() => setDesign(d)} style={{
-                  background: design.id === d.id ? (d.id === 4 ? 'rgba(90,158,111,0.15)' : 'rgba(255,107,53,0.1)') : 'rgba(255,255,255,0.03)',
-                  border: `1px solid ${design.id === d.id ? (d.id === 4 ? '#5a9e6f' : C.accent) : 'rgba(255,255,255,0.08)'}`,
-                  borderRadius: 10, padding: '12px 14px', cursor: 'pointer', textAlign: 'left',
-                  borderTop: `3px solid ${design.id === d.id ? (d.id === 4 ? '#5a9e6f' : C.accent) : 'rgba(255,255,255,0.06)'}`,
-                }}>
-                  <div style={{ fontSize: 11, color: d.id === 4 ? '#5a9e6f' : C.accent, letterSpacing: 2, fontWeight: 700, fontFamily: font }}>
-                    DESIGN {d.id} {d.id === 4 ? '★' : ''}
-                  </div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#ddd', marginTop: 4, fontFamily: font }}>{d.name.split(' — ')[1]}</div>
-                  <div style={{ fontSize: 11, color: '#777', marginTop: 4, lineHeight: 1.5, fontFamily: font }}>{d.desc}</div>
-                </button>
-              ))}
-            </div>
+          {/* Design selector — compact settings row */}
+          <div style={{ display: 'flex', gap: 10, marginBottom: 20, alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ fontSize: 12, color: '#888', letterSpacing: 2, marginRight: 8 }}>DESIGN</span>
+            {DESIGNS.map(d => (
+              <button key={d.id} onClick={() => setDesign(d)} style={{
+                background: design.id === d.id ? (d.id === 4 ? 'rgba(90,158,111,0.2)' : 'rgba(255,107,53,0.15)') : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${design.id === d.id ? (d.id === 4 ? '#5a9e6f' : C.accent) : 'rgba(255,255,255,0.1)'}`,
+                borderRadius: 8, padding: '8px 16px', cursor: 'pointer', fontFamily: font,
+                color: design.id === d.id ? '#fff' : '#999', fontSize: 14, fontWeight: design.id === d.id ? 700 : 400,
+              }}>
+                D{d.id}{d.id === 4 ? ' ★' : ''}
+              </button>
+            ))}
+            <button onClick={() => setShowUpload(true)} style={{
+              background: 'transparent', border: '1px dashed rgba(255,255,255,0.15)',
+              borderRadius: 8, padding: '8px 14px', cursor: 'pointer',
+              color: '#666', fontSize: 13, fontFamily: font,
+            }}>+ Upload</button>
           </div>
+
+          {/* Fake upload modal */}
+          {showUpload && (
+            <div style={{
+              position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.7)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }} onClick={() => setShowUpload(false)}>
+              <div onClick={e => e.stopPropagation()} style={{
+                background: '#1a2030', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 14, padding: '32px 40px', maxWidth: 450, textAlign: 'center',
+              }}>
+                <div style={{ fontSize: 16, color: C.accent, letterSpacing: 3, fontWeight: 700, marginBottom: 12 }}>UPLOAD DESIGN CONFIG</div>
+                <div style={{ fontSize: 14, color: '#888', marginBottom: 20, lineHeight: 1.6 }}>
+                  Import a .pgk design configuration file exported from ESFORGE CAD suite.
+                </div>
+                <div style={{
+                  border: '2px dashed rgba(255,255,255,0.1)', borderRadius: 10, padding: '40px 20px',
+                  color: '#555', fontSize: 14, marginBottom: 20, cursor: 'pointer',
+                }}>
+                  Drop .pgk file here or click to browse
+                  <input type="file" accept=".pgk,.json" style={{ display: 'none' }} />
+                </div>
+                <button onClick={() => setShowUpload(false)} style={{
+                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: 8, padding: '10px 28px', color: '#ccc', fontSize: 14, cursor: 'pointer', fontFamily: font,
+                }}>Cancel</button>
+              </div>
+            </div>
+          )}
 
           {/* Charge presets */}
           <div style={{ display: 'flex', gap: 10, marginBottom: 20, justifyContent: 'center' }}>
@@ -535,7 +588,12 @@ function ParameterPanel({ params, setParams, design, setDesign, onFire, speed, s
               background: '#FF6B35', border: 'none', borderRadius: 12, padding: '16px 48px',
               fontSize: 24, fontWeight: 700, color: '#fff', cursor: 'pointer',
               letterSpacing: 6, fontFamily: font,
-            }}>FIRE</button>
+            }}>SIMULATE</button>
+            <button onClick={onShowHistory} style={{
+              background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: 12, padding: '16px 32px', fontSize: 16, fontWeight: 600,
+              color: '#aaa', cursor: 'pointer', fontFamily: font, letterSpacing: 2,
+            }}>PAST RUNS ({historyCount})</button>
           </div>
         </div>
       )}
@@ -621,6 +679,9 @@ export default function LiveSimulationTab({ data }) {
   const [showParams, setShowParams] = useState(true)
   const [showRawData, setShowRawData] = useState(false)
   const [runSeed, setRunSeed] = useState(Date.now())
+  const [showHistory, setShowHistory] = useState(false)
+  const [history, setHistory] = useState(() => loadHistory())
+  const [savedThisRun, setSavedThisRun] = useState(false)
 
   const baseTraj = data.unguided.trajectory
   const maxT = baseTraj.t[baseTraj.t.length - 1]
@@ -653,16 +714,40 @@ export default function LiveSimulationTab({ data }) {
   const phaseColor = { STANDBY: '#666', ASCENT: '#0ea5e9', GUIDING: '#FF6B35', TERMINAL: '#ef4444', IMPACT: '#16a34a' }[phase]
 
   useEffect(() => {
-    if (elapsed >= maxT && fired) setImpacted(true)
-  }, [elapsed, maxT, fired])
+    if (elapsed >= maxT && fired && !impacted) {
+      setImpacted(true)
+      // Auto-save this run
+      if (!savedThisRun) {
+        const newRun = saveRun({
+          seed: runSeed,
+          designId: design.id,
+          designName: DESIGNS.find(d => d.id === design.id)?.name.split(' — ')[1] || `D${design.id}`,
+          preset: params.name,
+          charge: params.charge,
+          params: { ...params },
+          uMiss: synth.uMiss,
+          gMiss: synth.gMiss,
+          success: synth.gMiss <= 50 && design.id === 4,
+          improvement: (synth.uMiss / Math.max(synth.gMiss, 1)).toFixed(1),
+          flightTime: maxT.toFixed(1),
+          status: synth.statusNote || design.note,
+          perturbations: synth.perturbations,
+        })
+        setSavedThisRun(true)
+        setHistory(loadHistory())
+      }
+    }
+  }, [elapsed, maxT, fired, impacted, savedThisRun, runSeed, design, params, synth])
 
   const handleFire = () => {
     setRunSeed(Date.now())  // new random seed each fire
     setShowParams(false)
     setShowRawData(false)
+    setShowHistory(false)
     setFired(false)
     setElapsed(0)
     setImpacted(false)
+    setSavedThisRun(false)
     setTimeout(() => setFired(true), 100)
   }
 
@@ -679,9 +764,16 @@ export default function LiveSimulationTab({ data }) {
 
   return (
     <div style={{ height: '100%', position: 'relative' }}>
+      {/* History panel overlay */}
+      {showHistory && (
+        <SimHistoryPanel history={history} onClose={() => { setShowHistory(false); setShowParams(true) }} />
+      )}
+
       {/* Parameter panel overlay */}
-      {showParams && (
-        <ParameterPanel params={params} setParams={setParams} design={design} setDesign={setDesign} onFire={handleFire} speed={speed} setSpeed={setSpeed} />
+      {showParams && !showHistory && (
+        <ParameterPanel params={params} setParams={setParams} design={design} setDesign={setDesign}
+          onFire={handleFire} speed={speed} setSpeed={setSpeed}
+          onShowHistory={() => setShowHistory(true)} historyCount={history.length} />
       )}
 
       {/* Raw data overlay */}
