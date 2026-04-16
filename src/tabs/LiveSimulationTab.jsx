@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, Grid, Text, Sky } from '@react-three/drei'
 import * as THREE from 'three'
 import { C, font, panelStyle } from '../theme.js'
@@ -528,7 +528,7 @@ function Terrain() {
 }
 
 // --- Single flight scene ---
-function FlightScene({ traj, target, impact, color, label, guided, currentT, fired, impacted, correctionPoints, correctionVectors, apogee }) {
+function FlightScene({ traj, target, impact, color, label, guided, currentT, fired, impacted, correctionPoints, correctionVectors, apogee, followCamera }) {
   const interpPos = useCallback((tr, t) => {
     const times = tr.t
     if (t <= times[0]) return [tr.x[0] * S, tr.z[0] * S, tr.y[0] * S]
@@ -608,9 +608,36 @@ function FlightScene({ traj, target, impact, color, label, guided, currentT, fir
           ))}
         </>
       )}
-      <OrbitControls target={[4, 0.5, 0.1]} maxDistance={30} minDistance={1}
-        maxPolarAngle={Math.PI / 2 - 0.05} enableDamping dampingFactor={0.05} />
+      <CameraController followTarget={followCamera && fired ? pos : null} />
     </>
+  )
+}
+
+// --- Camera: free orbit or follow projectile ---
+function CameraController({ followTarget }) {
+  const controlsRef = useRef()
+  const { camera } = useThree()
+
+  useFrame(() => {
+    if (followTarget && controlsRef.current) {
+      const [tx, ty, tz] = followTarget
+      // Smoothly move orbit target to projectile position
+      const ctrl = controlsRef.current
+      ctrl.target.lerp(new THREE.Vector3(tx, ty, tz), 0.08)
+      ctrl.update()
+    }
+  })
+
+  return (
+    <OrbitControls
+      ref={controlsRef}
+      target={[4, 0.5, 0.1]}
+      maxDistance={60}
+      minDistance={0.3}
+      enableDamping
+      dampingFactor={0.05}
+      // No polar angle limit — full freedom to go anywhere
+    />
   )
 }
 
@@ -962,6 +989,7 @@ export default function LiveSimulationTab({ data }) {
   const [design, setDesign] = useState(DESIGNS[3])  // Default to Design 4
   const [showParams, setShowParams] = useState(true)
   const [showRawData, setShowRawData] = useState(false)
+  const [followCam, setFollowCam] = useState(false)
   const [runSeed, setRunSeed] = useState(Date.now())
   const [showHistory, setShowHistory] = useState(false)
   const [history, setHistory] = useState(() => loadHistory())
@@ -1077,6 +1105,14 @@ export default function LiveSimulationTab({ data }) {
       {/* Bottom buttons */}
       {fired && (
         <div style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 20, display: 'flex', gap: 10 }}>
+          <button onClick={() => setFollowCam(!followCam)} style={{
+            background: followCam ? '#8b5cf6' : 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
+            border: `1px solid ${followCam ? '#8b5cf6' : 'rgba(255,255,255,0.1)'}`, borderRadius: 10,
+            padding: '12px 24px', fontSize: 16, fontWeight: 700, color: followCam ? '#fff' : '#aaa', cursor: 'pointer',
+            letterSpacing: 2, fontFamily: font,
+          }}>
+            {followCam ? 'FREE CAM' : 'FOLLOW'}
+          </button>
           <button onClick={() => setShowRawData(!showRawData)} style={{
             background: showRawData ? '#22d3ee' : 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
             border: `1px solid ${showRawData ? '#22d3ee' : 'rgba(255,255,255,0.1)'}`, borderRadius: 10,
@@ -1111,7 +1147,7 @@ export default function LiveSimulationTab({ data }) {
               traj={synth.unguided} target={synth.target} impact={synth.uImpact}
               color="#b45454" label="UNGUIDED" guided={false}
               currentT={currentT} fired={fired} impacted={impacted}
-              apogee={synth.apogee}
+              apogee={synth.apogee} followCamera={followCam}
             />
           </Canvas>
         </div>
@@ -1131,7 +1167,7 @@ export default function LiveSimulationTab({ data }) {
               currentT={currentT} fired={fired} impacted={impacted}
               correctionPoints={synth.correctionPoints}
               correctionVectors={synth.correctionVectors}
-              apogee={synth.apogee}
+              apogee={synth.apogee} followCamera={followCam}
             />
           </Canvas>
         </div>
